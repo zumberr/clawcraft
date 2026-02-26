@@ -1,0 +1,8 @@
+node_modules/
+data/world.sqlite
+data/world.sqlite-wal
+data/world.sqlite-shm
+data/clawcraft.log
+.env
+*.log
+bun.lockb

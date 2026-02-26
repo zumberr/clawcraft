@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun install)",
+      "Bash(bun info mineflayer-auto-eat)",
+      "Bash(npm view mineflayer-auto-eat versions --json)",
+      "Bash(test -d /c/Users/Usuario/Downloads/clawcraft/autonomy)",
+      "Bash(for dir in soul actions communication autonomy)",
+      "Bash(do echo \"=== $dir ===\")",
+      "Bash(test -d /c/Users/Usuario/Downloads/clawcraft/$dir)",
+      "Bash(done)"
+    ]
+  }
+}
