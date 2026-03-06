@@ -60,6 +60,8 @@ import { createInteraction } from '../actions/interaction.js';
 import { createFishing } from '../actions/fishing.js';
 import { createSmelting } from '../actions/smelting.js';
 
+import { createToolRegistry } from '../consciousness/tool-registry.js';
+import { createAgenticLoop } from '../consciousness/agentic-loop.js';
 import { createBehaviorManager } from './behavior-manager.js';
 import { createGuardVillageBehavior } from '../behaviors/guard-village.js';
 import { createReporter } from '../communication/reporter.js';
@@ -196,8 +198,12 @@ export async function createAgent() {
   welcomeBack.initialize();
   alertTriggers.initialize();
 
+  // --- Tool Registry & Agentic Loop (for generic behaviors) ---
+  const toolRegistry = createToolRegistry(actions, sensors, worldModel, memoryManager, bus);
+  const agenticLoop = createAgenticLoop(llm, promptBuilder, toolRegistry, bus, memoryManager);
+
   // --- Behavior Manager (mission system) ---
-  const behaviorManager = createBehaviorManager(bus, thinker, memoryManager, emotions);
+  const behaviorManager = createBehaviorManager(bus, thinker, memoryManager, emotions, agenticLoop);
 
   // Register behavior types
   const guardVillageBehavior = createGuardVillageBehavior({
@@ -382,7 +388,7 @@ export async function createAgent() {
     soul: { personality, emotions, motivations, favorability, proficiency, schedule },
     autonomy: { decisionTrees, problemSolver },
     planning: { goalManager, taskDecomposer, taskQueue, planExecutor },
-    consciousness: { llm, thinker, promptBuilder, reflection },
+    consciousness: { llm, thinker, promptBuilder, reflection, agenticLoop, toolRegistry },
     communication: { minecraftChat, discordBridge, reporter, narrator, alertTriggers },
     behaviors: behaviorManager,
 

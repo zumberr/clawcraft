@@ -8,7 +8,9 @@
       "Bash(for dir in soul actions communication autonomy)",
       "Bash(do echo \"=== $dir ===\")",
       "Bash(test -d /c/Users/Usuario/Downloads/clawcraft/$dir)",
-      "Bash(done)"
+      "Bash(done)",
+      "WebFetch(domain:www.mindstudio.ai)",
+      "WebFetch(domain:milvus.io)"
     ]
   }
 }

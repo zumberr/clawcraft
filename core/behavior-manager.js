@@ -22,7 +22,7 @@ export const BehaviorState = Object.freeze({
   FAILED: 'failed',
 });
 
-export function createBehaviorManager(bus, thinker, memoryManager, emotions) {
+export function createBehaviorManager(bus, thinker, memoryManager, emotions, agenticLoop = null) {
   let activeBehavior = null;
   let behaviorRegistry = new Map();
   let behaviorHistory = [];
@@ -88,8 +88,8 @@ export function createBehaviorManager(bus, thinker, memoryManager, emotions) {
       const factory = behaviorRegistry.get(behaviorType);
 
       if (!factory) {
-        log.warn(`No handler for behavior type: ${behaviorType}, using generic`);
-        activeBehavior.handler = createGenericHandler(plan);
+        log.warn(`No handler for behavior type: ${behaviorType}, using ${agenticLoop ? 'agentic loop' : 'generic'}`);
+        activeBehavior.handler = createAgenticHandler(plan, context);
       } else {
         activeBehavior.handler = factory(plan, context);
       }
@@ -328,12 +328,51 @@ export function createBehaviorManager(bus, thinker, memoryManager, emotions) {
     return 'generic';
   }
 
-  function createGenericHandler(plan) {
+  function createAgenticHandler(plan, context) {
+    // Fallback to no-op if agentic loop is not available
+    if (!agenticLoop) {
+      return {
+        tick: async () => null,
+        handleEvent: () => true,
+        getSummary: () => ({ description: 'Generic behavior (no agentic loop)' }),
+        cleanup: async () => {},
+      };
+    }
+
+    let loopResult = null;
+    let isRunning = false;
+
     return {
-      tick: async () => null,
-      handleEvent: () => true, // Handle everything locally (ignore)
-      getSummary: () => ({ description: 'Generic behavior completed' }),
-      cleanup: async () => {},
+      tick: async () => {
+        if (loopResult) {
+          return { completed: true, reason: loopResult.success ? 'agentic_complete' : loopResult.reason };
+        }
+        if (isRunning) return null;
+
+        isRunning = true;
+        try {
+          const result = await agenticLoop.run(plan.interpretation, context);
+          loopResult = result;
+          return { completed: true, reason: result.success ? 'agentic_complete' : result.reason };
+        } catch (err) {
+          log.error(`Agentic loop error: ${err.message}`);
+          loopResult = { success: false, reason: err.message };
+          return { completed: true, reason: 'agentic_error' };
+        }
+      },
+      handleEvent: (event) => {
+        // Critical events should interrupt - escalate to behavior manager
+        if (event.data?.priority === 'CRITICAL') return false;
+        return true;
+      },
+      getSummary: () => ({
+        description: `Agentic task: ${plan.name}`,
+        steps: loopResult?.steps ?? 0,
+        trace: loopResult?.trace ?? [],
+      }),
+      cleanup: async () => {
+        agenticLoop.interrupt('behavior_cleanup');
+      },
     };
   }
 

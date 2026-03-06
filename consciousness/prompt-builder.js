@@ -223,6 +223,89 @@ Respond with JSON:
 }`;
   }
 
+  // ========== AGENTIC LOOP PROMPTS ==========
+
+  /**
+   * System prompt for the agentic ReAct loop.
+   * Includes personality, tool descriptions, and response format rules.
+   */
+  function buildAgenticSystemPrompt(tools) {
+    const persona = personality.getPersona();
+    const emotionalState = emotions.getCurrentState();
+
+    const toolDescriptions = tools.map(t => {
+      const params = Object.entries(t.parameters ?? {})
+        .map(([k, v]) => `    ${k}: ${v}`)
+        .join('\n');
+      return `- ${t.name}: ${t.description}${params ? `\n  Parameters:\n${params}` : ''}`;
+    }).join('\n');
+
+    return `You are ${persona.name}, a Minecraft companion bot executing a task step by step.
+
+PERSONALITY: ${persona.traits.slice(0, 3).join(', ')}
+EMOTIONAL STATE: ${emotionalState.dominant} (intensity: ${emotionalState.intensity.toFixed(1)})
+
+AVAILABLE TOOLS:
+${toolDescriptions}
+
+RULES:
+1. Use exactly ONE tool per turn.
+2. Wait for the OBSERVATION before deciding the next action.
+3. When the goal is fully achieved, use the "finish" tool or respond with {"finished": true}.
+4. If a tool returns an ERROR, reason about the failure and try an alternative approach.
+5. Keep thoughts concise - you are in a game, not writing essays.
+
+RESPONSE FORMAT (strict JSON):
+
+To use a tool:
+{"thought": "brief reasoning", "tool": "tool_name", "params": {...}}
+
+To finish the task:
+{"thought": "brief reasoning", "finished": true, "result": "what was accomplished", "say": "optional chat message"}
+
+You speak in ${persona.language === 'es' ? 'Spanish' : 'English'}.
+ALWAYS respond with valid JSON. No extra text outside the JSON object.`;
+  }
+
+  /**
+   * User prompt for the agentic loop: the goal + current world state.
+   */
+  function buildAgenticGoalPrompt(goal, context = {}) {
+    const sections = [`GOAL: ${goal}`];
+
+    if (context.position) {
+      sections.push(`POSITION: ${formatPos(context.position)}`);
+    }
+
+    if (context.health !== undefined) {
+      sections.push(`HEALTH: ${context.health}/20 | FOOD: ${context.food}/20`);
+    }
+
+    if (context.inventory && context.inventory.length > 0) {
+      const inv = context.inventory.map(i => `${i.name} x${i.count}`).join(', ');
+      sections.push(`INVENTORY: ${inv}`);
+    } else {
+      sections.push('INVENTORY: empty or unknown');
+    }
+
+    if (context.nearbyLocations && context.nearbyLocations.length > 0) {
+      const locs = context.nearbyLocations
+        .slice(0, 5)
+        .map(l => `${l.label ?? l.type ?? l.structureType} at (${l.x ?? l.position?.x}, ${l.y ?? l.position?.y}, ${l.z ?? l.position?.z})`)
+        .join(', ');
+      sections.push(`NEARBY LOCATIONS: ${locs}`);
+    }
+
+    const recentEpisodes = memoryManager.episodic.recallRecent(3);
+    if (recentEpisodes.length > 0) {
+      sections.push(`RECENT MEMORY:\n${recentEpisodes.map(e => `- ${e.description}`).join('\n')}`);
+    }
+
+    sections.push('Decide your first action to accomplish the goal. Respond with JSON.');
+
+    return sections.join('\n\n');
+  }
+
   return Object.freeze({
     buildSystemPrompt,
     buildThinkingPrompt,
@@ -230,6 +313,8 @@ Respond with JSON:
     buildReflectionPrompt,
     buildMissionPlanPrompt,
     buildMissionEventPrompt,
+    buildAgenticSystemPrompt,
+    buildAgenticGoalPrompt,
   });
 }
 
