@@ -199,7 +199,7 @@ export async function createAgent() {
   alertTriggers.initialize();
 
   // --- Tool Registry & Agentic Loop (for generic behaviors) ---
-  const toolRegistry = createToolRegistry(actions, sensors, worldModel, memoryManager, bus);
+  const toolRegistry = await createToolRegistry(actions, sensors, worldModel, memoryManager, bus);
   const agenticLoop = createAgenticLoop(llm, promptBuilder, toolRegistry, bus, memoryManager);
 
   // --- Behavior Manager (mission system) ---

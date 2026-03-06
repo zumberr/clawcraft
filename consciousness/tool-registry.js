@@ -3,14 +3,17 @@
 // Each tool wraps an action module with description, parameter schema,
 // execute (with error handling), and result formatting.
 
+import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { formatPos } from '../utils/helpers.js';
 import { EventCategory } from '../core/event-bus.js';
+import { loadPlugins } from '../utils/plugin-loader.js';
 
 const log = createLogger('ToolRegistry');
 
-export function createToolRegistry(actions, sensors, worldModel, memoryManager, bus) {
+export async function createToolRegistry(actions, sensors, worldModel, memoryManager, bus, options = {}) {
   const tools = new Map();
+  const pluginsDir = options.pluginsDir ?? join(process.cwd(), 'tools');
 
   function register(name, tool) {
     tools.set(name, tool);
@@ -305,12 +308,54 @@ export function createToolRegistry(actions, sensors, worldModel, memoryManager, 
     return descriptions;
   }
 
-  log.info(`Tool registry initialized with ${tools.size} tools`);
+  // --- External Plugin Support ---
+
+  const deps = Object.freeze({ actions, sensors, worldModel, memoryManager, bus, execute });
+
+  function registerExternal(plugin) {
+    if (tools.has(plugin.name)) {
+      log.warn(`Plugin "${plugin.name}" conflicts with built-in tool, skipping`);
+      return false;
+    }
+
+    if (plugin.type === 'skill') {
+      // Wrap multi-step skill as a standard tool
+      register(plugin.name, {
+        description: plugin.description,
+        parameters: plugin.parameters ?? {},
+        async execute(params) {
+          return await plugin.steps(params, deps);
+        },
+        formatResult: plugin.formatResult,
+      });
+    } else {
+      // Standard tool plugin
+      register(plugin.name, {
+        description: plugin.description,
+        parameters: plugin.parameters ?? {},
+        async execute(params) {
+          return await plugin.execute(params, deps);
+        },
+        formatResult: plugin.formatResult,
+      });
+    }
+
+    return true;
+  }
+
+  // Auto-load plugins from tools/ directory
+  const plugins = await loadPlugins(pluginsDir);
+  for (const plugin of plugins) {
+    registerExternal(plugin);
+  }
+
+  log.info(`Tool registry initialized with ${tools.size} tools (${plugins.length} from plugins)`);
 
   return Object.freeze({
     execute,
     formatObservation,
     getTools,
+    registerExternal,
   });
 }
 
