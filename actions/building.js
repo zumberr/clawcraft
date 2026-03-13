@@ -1,36 +1,75 @@
 // ClawCraft - Building Actions
 // Place blocks, build simple structures
 
-import { createLogger } from '../utils/logger.js';
-import { formatPos } from '../utils/helpers.js';
+import { createLogger } from "../utils/logger.js";
+import { formatPos } from "../utils/helpers.js";
+import { EventCategory } from "../core/event-bus.js";
 
-const log = createLogger('Action:Building');
+const log = createLogger("Action:Building");
 
-export function createBuilding(bot) {
-  async function placeBlock(itemName, position, faceVector = { x: 0, y: 1, z: 0 }) {
-    const item = bot.inventory.items().find(i => i.name === itemName);
+export function createBuilding(bot, bus = null) {
+  function emitPlaced(blockName, position, extra = {}) {
+    if (!bus) return;
+
+    bus.emit(
+      "action:placed",
+      {
+        blockName,
+        itemName: blockName,
+        position: position
+          ? { x: position.x, y: position.y, z: position.z }
+          : null,
+        count: 1,
+        ...extra,
+      },
+      EventCategory.TASK,
+    );
+  }
+
+  function emitBuilt(structureType, placed) {
+    if (!bus) return;
+
+    bus.emit(
+      "action:built",
+      {
+        structureType,
+        placed,
+      },
+      EventCategory.TASK,
+    );
+  }
+
+  async function placeBlock(
+    itemName,
+    position,
+    faceVector = { x: 0, y: 1, z: 0 },
+  ) {
+    const item = bot.inventory.items().find((i) => i.name === itemName);
     if (!item) throw new Error(`No ${itemName} in inventory`);
 
-    await bot.equip(item, 'hand');
+    await bot.equip(item, "hand");
 
     // Find reference block (block adjacent to where we want to place)
-    const refBlock = bot.blockAt(position.offset(-faceVector.x, -faceVector.y, -faceVector.z));
+    const refBlock = bot.blockAt(
+      position.offset(-faceVector.x, -faceVector.y, -faceVector.z),
+    );
     if (!refBlock) throw new Error(`No reference block at target location`);
 
     await bot.placeBlock(refBlock, faceVector);
+    emitPlaced(itemName, position, { source: "placeBlock" });
     log.debug(`Placed ${itemName} at ${formatPos(position)}`);
   }
 
   async function buildStructure(type, params = {}) {
     switch (type) {
-      case 'box':
-      case 'shelter':
+      case "box":
+      case "shelter":
         return buildBox(params);
-      case 'wall':
+      case "wall":
         return buildWall(params);
-      case 'tower':
+      case "tower":
         return buildTower(params);
-      case 'floor':
+      case "floor":
         return buildFloor(params);
       default:
         throw new Error(`Unknown structure type: ${type}`);
@@ -40,11 +79,11 @@ export function createBuilding(bot) {
   async function buildBox(params) {
     const {
       size = { x: 5, y: 3, z: 5 },
-      material = 'cobblestone',
+      material = "cobblestone",
       origin = bot.entity.position.offset(2, 0, 2),
     } = params;
 
-    const item = bot.inventory.items().find(i => i.name === material);
+    const item = bot.inventory.items().find((i) => i.name === material);
     if (!item) throw new Error(`No ${material} in inventory`);
 
     let placed = 0;
@@ -55,7 +94,8 @@ export function createBuilding(bot) {
       for (let x = 0; x < size.x; x++) {
         for (let z = 0; z < size.z; z++) {
           // Only walls and floor (not interior)
-          const isWall = x === 0 || x === size.x - 1 || z === 0 || z === size.z - 1;
+          const isWall =
+            x === 0 || x === size.x - 1 || z === 0 || z === size.z - 1;
           const isFloor = y === 0;
           const isRoof = y === size.y - 1;
 
@@ -69,13 +109,15 @@ export function createBuilding(bot) {
       }
     }
 
-    log.info(`Building ${size.x}x${size.y}x${size.z} box with ${material} (${positions.length} blocks)`);
+    log.info(
+      `Building ${size.x}x${size.y}x${size.z} box with ${material} (${positions.length} blocks)`,
+    );
 
     for (const pos of positions) {
       try {
         // Check if block already exists
         const existing = bot.blockAt(pos);
-        if (existing && existing.name !== 'air') continue;
+        if (existing && existing.name !== "air") continue;
 
         await equipBlock(material);
         // Need a reference block to place against
@@ -88,6 +130,7 @@ export function createBuilding(bot) {
           };
           await bot.placeBlock(ref, face);
           placed++;
+          emitPlaced(material, pos, { structureType: "box" });
         }
       } catch {
         // Skip blocks we can't place
@@ -95,38 +138,51 @@ export function createBuilding(bot) {
     }
 
     log.info(`Box built: ${placed} blocks placed`);
+    emitBuilt("box", placed);
     return placed;
   }
 
   async function buildWall(params) {
-    const { length = 5, height = 3, material = 'cobblestone', direction = 'x' } = params;
+    const {
+      length = 5,
+      height = 3,
+      material = "cobblestone",
+      direction = "x",
+    } = params;
     const origin = bot.entity.position.offset(2, 0, 0);
     let placed = 0;
 
     for (let h = 0; h < height; h++) {
       for (let i = 0; i < length; i++) {
-        const pos = direction === 'x'
-          ? origin.offset(i, h, 0)
-          : origin.offset(0, h, i);
+        const pos =
+          direction === "x" ? origin.offset(i, h, 0) : origin.offset(0, h, i);
 
         try {
           await equipBlock(material);
           const ref = findAdjacentSolid(pos);
           if (ref) {
-            const face = { x: pos.x - ref.position.x, y: pos.y - ref.position.y, z: pos.z - ref.position.z };
+            const face = {
+              x: pos.x - ref.position.x,
+              y: pos.y - ref.position.y,
+              z: pos.z - ref.position.z,
+            };
             await bot.placeBlock(ref, face);
             placed++;
+            emitPlaced(material, pos, { structureType: "wall" });
           }
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
     }
 
     log.info(`Wall built: ${placed} blocks`);
+    emitBuilt("wall", placed);
     return placed;
   }
 
   async function buildTower(params) {
-    const { height = 10, material = 'cobblestone' } = params;
+    const { height = 10, material = "cobblestone" } = params;
     const origin = bot.entity.position;
     let placed = 0;
 
@@ -137,20 +193,26 @@ export function createBuilding(bot) {
         if (below) {
           await bot.placeBlock(below, { x: 0, y: 1, z: 0 });
           placed++;
+          emitPlaced(material, below.position.offset(0, 1, 0), {
+            structureType: "tower",
+          });
           // Jump on top
-          bot.setControlState('jump', true);
-          await new Promise(r => setTimeout(r, 400));
-          bot.setControlState('jump', false);
+          bot.setControlState("jump", true);
+          await new Promise((r) => setTimeout(r, 400));
+          bot.setControlState("jump", false);
         }
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     }
 
     log.info(`Tower built: ${placed} blocks high`);
+    emitBuilt("tower", placed);
     return placed;
   }
 
   async function buildFloor(params) {
-    const { size = { x: 5, z: 5 }, material = 'cobblestone' } = params;
+    const { size = { x: 5, z: 5 }, material = "cobblestone" } = params;
     const origin = bot.entity.position.offset(0, -1, 0);
     let placed = 0;
 
@@ -159,27 +221,35 @@ export function createBuilding(bot) {
         try {
           const pos = origin.offset(x, 0, z);
           const existing = bot.blockAt(pos);
-          if (existing && existing.name === 'air') {
+          if (existing && existing.name === "air") {
             await equipBlock(material);
             const ref = findAdjacentSolid(pos);
             if (ref) {
-              const face = { x: pos.x - ref.position.x, y: pos.y - ref.position.y, z: pos.z - ref.position.z };
+              const face = {
+                x: pos.x - ref.position.x,
+                y: pos.y - ref.position.y,
+                z: pos.z - ref.position.z,
+              };
               await bot.placeBlock(ref, face);
               placed++;
+              emitPlaced(material, pos, { structureType: "floor" });
             }
           }
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
     }
 
     log.info(`Floor built: ${placed} blocks`);
+    emitBuilt("floor", placed);
     return placed;
   }
 
   async function equipBlock(blockName) {
-    const item = bot.inventory.items().find(i => i.name === blockName);
+    const item = bot.inventory.items().find((i) => i.name === blockName);
     if (!item) throw new Error(`No ${blockName} in inventory`);
-    await bot.equip(item, 'hand');
+    await bot.equip(item, "hand");
   }
 
   function findAdjacentSolid(position) {
@@ -194,7 +264,7 @@ export function createBuilding(bot) {
 
     for (const offset of offsets) {
       const block = bot.blockAt(position.offset(offset.x, offset.y, offset.z));
-      if (block && block.boundingBox === 'block') {
+      if (block && block.boundingBox === "block") {
         return block;
       }
     }

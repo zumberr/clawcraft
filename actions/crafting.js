@@ -1,13 +1,42 @@
 // ClawCraft - Crafting Actions
 // Craft items using crafting table or inventory
 
-import { createLogger } from '../utils/logger.js';
+import { createLogger } from "../utils/logger.js";
+import { EventCategory } from "../core/event-bus.js";
 
-const log = createLogger('Action:Crafting');
+const log = createLogger("Action:Crafting");
 
-export function createCrafting(bot) {
+export function createCrafting(bot, bus = null) {
+  function emitCrafted(itemName, count, source) {
+    if (!bus) return;
+
+    bus.emit(
+      "action:crafted",
+      {
+        itemName,
+        count,
+        source,
+      },
+      EventCategory.TASK,
+    );
+  }
+
+  function emitSmelted(itemName, outputName, count) {
+    if (!bus) return;
+
+    bus.emit(
+      "action:smelted",
+      {
+        itemName,
+        outputName,
+        count,
+      },
+      EventCategory.TASK,
+    );
+  }
+
   async function craft(itemName, count = 1) {
-    const mcData = require('minecraft-data')(bot.version);
+    const mcData = require("minecraft-data")(bot.version);
     const item = mcData.itemsByName[itemName];
     if (!item) throw new Error(`Unknown item: ${itemName}`);
 
@@ -23,6 +52,7 @@ export function createCrafting(bot) {
 
     try {
       await bot.craft(recipe, craftCount, null);
+      emitCrafted(itemName, craftCount, "inventory");
       log.info(`Crafted ${craftCount}x ${itemName} (no table)`);
       return craftCount;
     } catch (err) {
@@ -32,7 +62,7 @@ export function createCrafting(bot) {
   }
 
   async function craftWithTable(itemName, count = 1) {
-    const mcData = require('minecraft-data')(bot.version);
+    const mcData = require("minecraft-data")(bot.version);
     const item = mcData.itemsByName[itemName];
     if (!item) throw new Error(`Unknown item: ${itemName}`);
 
@@ -44,23 +74,35 @@ export function createCrafting(bot) {
     });
 
     if (tableBlock.length === 0) {
-      throw new Error('No crafting table found nearby. Need to craft or place one.');
+      throw new Error(
+        "No crafting table found nearby. Need to craft or place one.",
+      );
     }
 
     const table = bot.blockAt(tableBlock[0]);
 
     // Move to table if needed
     if (bot.entity.position.distanceTo(table.position) > 4) {
-      const { goals, Movements } = require('mineflayer-pathfinder');
+      const { goals, Movements } = require("mineflayer-pathfinder");
       const movements = new Movements(bot, mcData);
       bot.pathfinder.setMovements(movements);
-      bot.pathfinder.setGoal(new goals.GoalGetToBlock(
-        table.position.x, table.position.y, table.position.z,
-      ));
+      bot.pathfinder.setGoal(
+        new goals.GoalGetToBlock(
+          table.position.x,
+          table.position.y,
+          table.position.z,
+        ),
+      );
 
       await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('Move to table timeout')), 15000);
-        bot.once('goal_reached', () => { clearTimeout(timer); resolve(); });
+        const timer = setTimeout(
+          () => reject(new Error("Move to table timeout")),
+          15000,
+        );
+        bot.once("goal_reached", () => {
+          clearTimeout(timer);
+          resolve();
+        });
       });
     }
 
@@ -73,12 +115,13 @@ export function createCrafting(bot) {
     const craftCount = Math.min(count, 64);
 
     await bot.craft(recipe, craftCount, table);
+    emitCrafted(itemName, craftCount, "crafting_table");
     log.info(`Crafted ${craftCount}x ${itemName} (with table)`);
     return craftCount;
   }
 
-  async function smelt(itemName, fuelName = 'coal', count = 1) {
-    const mcData = require('minecraft-data')(bot.version);
+  async function smelt(itemName, fuelName = "coal", count = 1) {
+    const mcData = require("minecraft-data")(bot.version);
 
     // Find furnace
     const furnaceBlock = bot.findBlocks({
@@ -88,19 +131,19 @@ export function createCrafting(bot) {
     });
 
     if (furnaceBlock.length === 0) {
-      throw new Error('No furnace found nearby');
+      throw new Error("No furnace found nearby");
     }
 
     const furnace = await bot.openFurnace(bot.blockAt(furnaceBlock[0]));
 
     // Put fuel
-    const fuel = bot.inventory.items().find(i => i.name === fuelName);
+    const fuel = bot.inventory.items().find((i) => i.name === fuelName);
     if (fuel) {
       await furnace.putFuel(fuel.type, null, Math.min(fuel.count, count));
     }
 
     // Put input
-    const input = bot.inventory.items().find(i => i.name === itemName);
+    const input = bot.inventory.items().find((i) => i.name === itemName);
     if (!input) {
       furnace.close();
       throw new Error(`No ${itemName} in inventory to smelt`);
@@ -111,12 +154,13 @@ export function createCrafting(bot) {
     log.info(`Smelting ${count}x ${itemName} with ${fuelName}`);
 
     // Wait for smelting (rough estimate)
-    await new Promise(resolve => setTimeout(resolve, count * 10000));
+    await new Promise((resolve) => setTimeout(resolve, count * 10000));
 
     // Collect output
     const output = furnace.outputItem();
     if (output) {
       await furnace.takeOutput();
+      emitSmelted(itemName, output.name, output.count);
     }
 
     furnace.close();
@@ -124,7 +168,7 @@ export function createCrafting(bot) {
   }
 
   function canCraft(itemName) {
-    const mcData = require('minecraft-data')(bot.version);
+    const mcData = require("minecraft-data")(bot.version);
     const item = mcData.itemsByName[itemName];
     if (!item) return false;
 
@@ -133,7 +177,7 @@ export function createCrafting(bot) {
   }
 
   function getAvailableRecipes() {
-    const mcData = require('minecraft-data')(bot.version);
+    const mcData = require("minecraft-data")(bot.version);
     const available = [];
 
     for (const item of Object.values(mcData.itemsByName)) {

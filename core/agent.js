@@ -1,82 +1,86 @@
 // ClawCraft - Agent Orchestrator
 // The brain: connects all layers and manages the agent lifecycle
 
-import mineflayer from 'mineflayer';
-import { pathfinder } from 'mineflayer-pathfinder';
-import armorManager from 'mineflayer-armor-manager';
-import autoEat from 'mineflayer-auto-eat';
+import mineflayer from "mineflayer";
+import { pathfinder } from "mineflayer-pathfinder";
+import armorManager from "mineflayer-armor-manager";
+import autoEat from "mineflayer-auto-eat";
 
-import config from '../config.js';
-import { createLogger } from '../utils/logger.js';
-import { getDatabase, initializeTables, closeDatabase } from '../utils/database.js';
-import { createEventBus, EventCategory } from './event-bus.js';
-import { createScheduler, TickGroup } from './scheduler.js';
+import config from "../config.js";
+import { createLogger } from "../utils/logger.js";
+import {
+  getDatabase,
+  initializeTables,
+  closeDatabase,
+} from "../utils/database.js";
+import { createEventBus, EventCategory } from "./event-bus.js";
+import { createScheduler, TickGroup } from "./scheduler.js";
 
 // Layers
-import { createSensors } from '../perception/sensors.js';
-import { createWorldModel } from '../perception/world-model.js';
-import { createEventClassifier } from '../perception/event-classifier.js';
+import { createSensors } from "../perception/sensors.js";
+import { createWorldModel } from "../perception/world-model.js";
+import { createEventClassifier } from "../perception/event-classifier.js";
 
-import { createSurvivalInstinct } from '../instinct/survival.js';
-import { createCombatInstinct } from '../instinct/combat.js';
-import { createSelfPreservation } from '../instinct/self-preservation.js';
+import { createSurvivalInstinct } from "../instinct/survival.js";
+import { createCombatInstinct } from "../instinct/combat.js";
+import { createSelfPreservation } from "../instinct/self-preservation.js";
 
-import { createWorkingMemory } from '../memory/working-memory.js';
-import { createEpisodicMemory } from '../memory/episodic-memory.js';
-import { createSemanticMemory } from '../memory/semantic-memory.js';
-import { createSpatialMemory } from '../memory/spatial-memory.js';
-import { createSocialMemory } from '../memory/social-memory.js';
-import { createMemoryManager } from '../memory/memory-manager.js';
+import { createWorkingMemory } from "../memory/working-memory.js";
+import { createEpisodicMemory } from "../memory/episodic-memory.js";
+import { createSemanticMemory } from "../memory/semantic-memory.js";
+import { createSpatialMemory } from "../memory/spatial-memory.js";
+import { createSocialMemory } from "../memory/social-memory.js";
+import { createMemoryManager } from "../memory/memory-manager.js";
 
-import { createGoalManager } from '../planning/goal-manager.js';
-import { createTaskDecomposer } from '../planning/task-decomposer.js';
-import { createTaskQueue } from '../planning/task-queue.js';
-import { createPlanExecutor } from '../planning/plan-executor.js';
+import { createGoalManager } from "../planning/goal-manager.js";
+import { createTaskDecomposer } from "../planning/task-decomposer.js";
+import { createTaskQueue } from "../planning/task-queue.js";
+import { createPlanExecutor } from "../planning/plan-executor.js";
 
-import { createLLMInterface } from '../consciousness/llm-interface.js';
-import { createThinker } from '../consciousness/thinker.js';
-import { createPromptBuilder } from '../consciousness/prompt-builder.js';
-import { createReflection } from '../consciousness/reflection.js';
+import { createLLMInterface } from "../consciousness/llm-interface.js";
+import { createThinker } from "../consciousness/thinker.js";
+import { createPromptBuilder } from "../consciousness/prompt-builder.js";
+import { createReflection } from "../consciousness/reflection.js";
 
-import { createPersonality } from '../soul/personality.js';
-import { createEmotions } from '../soul/emotions.js';
-import { createMotivations } from '../soul/motivations.js';
-import { createFavorability } from '../soul/favorability.js';
-import { createProficiency } from '../soul/proficiency.js';
-import { createSchedule } from '../soul/schedule.js';
+import { createPersonality } from "../soul/personality.js";
+import { createEmotions } from "../soul/emotions.js";
+import { createMotivations } from "../soul/motivations.js";
+import { createFavorability } from "../soul/favorability.js";
+import { createProficiency } from "../soul/proficiency.js";
+import { createSchedule } from "../soul/schedule.js";
 
-import { createMinecraftChat } from '../communication/minecraft-chat.js';
-import { createDiscordBridge } from '../communication/discord-bridge.js';
-import { createMessageFormatter } from '../communication/message-formatter.js';
-import { createCommandParser } from '../communication/command-parser.js';
+import { createMinecraftChat } from "../communication/minecraft-chat.js";
+import { createDiscordBridge } from "../communication/discord-bridge.js";
+import { createMessageFormatter } from "../communication/message-formatter.js";
+import { createCommandParser } from "../communication/command-parser.js";
 
-import { createMovement } from '../actions/movement.js';
-import { createMining } from '../actions/mining.js';
-import { createBuilding } from '../actions/building.js';
-import { createCrafting } from '../actions/crafting.js';
-import { createFarming } from '../actions/farming.js';
-import { createInventoryManager } from '../actions/inventory.js';
-import { createInteraction } from '../actions/interaction.js';
-import { createFishing } from '../actions/fishing.js';
-import { createSmelting } from '../actions/smelting.js';
+import { createMovement } from "../actions/movement.js";
+import { createMining } from "../actions/mining.js";
+import { createBuilding } from "../actions/building.js";
+import { createCrafting } from "../actions/crafting.js";
+import { createFarming } from "../actions/farming.js";
+import { createInventoryManager } from "../actions/inventory.js";
+import { createInteraction } from "../actions/interaction.js";
+import { createFishing } from "../actions/fishing.js";
+import { createSmelting } from "../actions/smelting.js";
 
-import { createToolRegistry } from '../consciousness/tool-registry.js';
-import { createAgenticLoop } from '../consciousness/agentic-loop.js';
-import { createBehaviorManager } from './behavior-manager.js';
-import { createGuardVillageBehavior } from '../behaviors/guard-village.js';
-import { createReporter } from '../communication/reporter.js';
+import { createToolRegistry } from "../consciousness/tool-registry.js";
+import { createAgenticLoop } from "../consciousness/agentic-loop.js";
+import { createBehaviorManager } from "./behavior-manager.js";
+import { createGuardVillageBehavior } from "../behaviors/guard-village.js";
+import { createReporter } from "../communication/reporter.js";
 
-import { createDecisionTrees } from '../autonomy/decision-trees.js';
-import { createProblemSolver } from '../autonomy/problem-solver.js';
+import { createDecisionTrees } from "../autonomy/decision-trees.js";
+import { createProblemSolver } from "../autonomy/problem-solver.js";
 
-import { createEventAccumulator } from '../communication/narrator/event-accumulator.js';
-import { createPatternDetector } from '../communication/narrator/pattern-detector.js';
-import { createTemplateNarrator } from '../communication/narrator/template-narrator.js';
+import { createEventAccumulator } from "../communication/narrator/event-accumulator.js";
+import { createPatternDetector } from "../communication/narrator/pattern-detector.js";
+import { createTemplateNarrator } from "../communication/narrator/template-narrator.js";
 
-import { createWelcomeBack } from '../communication/proactive/welcome-back.js';
-import { createAlertTriggers } from '../communication/proactive/alert-triggers.js';
+import { createWelcomeBack } from "../communication/proactive/welcome-back.js";
+import { createAlertTriggers } from "../communication/proactive/alert-triggers.js";
 
-const log = createLogger('Agent');
+const log = createLogger("Agent");
 
 export async function createAgent() {
   log.info(`Initializing ${config.agent.name}...`);
@@ -88,7 +92,9 @@ export async function createAgent() {
   initializeTables(db);
 
   // --- Connect to Minecraft ---
-  log.info(`Connecting to ${config.minecraft.host}:${config.minecraft.port}...`);
+  log.info(
+    `Connecting to ${config.minecraft.host}:${config.minecraft.port}...`,
+  );
   const bot = mineflayer.createBot({
     host: config.minecraft.host,
     port: config.minecraft.port,
@@ -104,9 +110,9 @@ export async function createAgent() {
 
   // Wait for spawn
   await new Promise((resolve, reject) => {
-    bot.once('spawn', resolve);
-    bot.once('error', reject);
-    bot.once('kicked', (reason) => reject(new Error(`Kicked: ${reason}`)));
+    bot.once("spawn", resolve);
+    bot.once("error", reject);
+    bot.once("kicked", (reason) => reject(new Error(`Kicked: ${reason}`)));
   });
   log.info(`Spawned in world at ${bot.entity.position}`);
 
@@ -140,7 +146,7 @@ export async function createAgent() {
   const motivations = createMotivations(bus);
   const favorability = createFavorability(bus, socialMemory);
   const proficiency = createProficiency(bus, db);
-  const schedule = createSchedule(bus, personality);
+  const schedule = createSchedule(bus, personality, socialMemory);
 
   favorability.initialize();
   proficiency.initialize();
@@ -157,10 +163,10 @@ export async function createAgent() {
   // --- Actions Layer ---
   const actions = Object.freeze({
     movement: createMovement(bot),
-    mining: createMining(bot),
-    building: createBuilding(bot),
-    crafting: createCrafting(bot),
-    farming: createFarming(bot),
+    mining: createMining(bot, bus),
+    building: createBuilding(bot, bus),
+    crafting: createCrafting(bot, bus),
+    farming: createFarming(bot, bus),
     inventory: createInventoryManager(bot),
     interaction: createInteraction(bot),
     fishing: createFishing(bot),
@@ -175,9 +181,18 @@ export async function createAgent() {
 
   // --- Consciousness Layer ---
   const llm = createLLMInterface(config.llm);
-  const promptBuilder = createPromptBuilder(memoryManager, personality, emotions);
+  const promptBuilder = createPromptBuilder(
+    memoryManager,
+    personality,
+    emotions,
+  );
   const thinker = createThinker(llm, promptBuilder, bus, memoryManager);
-  const reflection = createReflection(llm, memoryManager, personality, emotions);
+  const reflection = createReflection(
+    llm,
+    memoryManager,
+    personality,
+    emotions,
+  );
 
   // --- Reporter ---
   const reporter = createReporter(bus, discordBridge);
@@ -189,100 +204,232 @@ export async function createAgent() {
   // --- Narrator System ---
   const eventAccumulator = createEventAccumulator(bus);
   const patternDetector = createPatternDetector();
-  const narrator = createTemplateNarrator(bus, personality, eventAccumulator, patternDetector);
+  const narrator = createTemplateNarrator(
+    bus,
+    personality,
+    eventAccumulator,
+    patternDetector,
+  );
   narrator.initialize();
 
   // --- Proactive Communication ---
-  const welcomeBack = createWelcomeBack(bus, socialMemory, favorability, narrator);
+  const welcomeBack = createWelcomeBack(
+    bus,
+    socialMemory,
+    favorability,
+    narrator,
+  );
   const alertTriggers = createAlertTriggers(bus, reporter);
   welcomeBack.initialize();
   alertTriggers.initialize();
 
   // --- Tool Registry & Agentic Loop (for generic behaviors) ---
-  const toolRegistry = await createToolRegistry(actions, sensors, worldModel, memoryManager, bus);
-  const agenticLoop = createAgenticLoop(llm, promptBuilder, toolRegistry, bus, memoryManager);
+  const toolRegistry = await createToolRegistry(
+    actions,
+    sensors,
+    worldModel,
+    memoryManager,
+    bus,
+  );
+  const agenticLoop = createAgenticLoop(
+    llm,
+    promptBuilder,
+    toolRegistry,
+    bus,
+    memoryManager,
+  );
 
   // --- Behavior Manager (mission system) ---
-  const behaviorManager = createBehaviorManager(bus, thinker, memoryManager, emotions, agenticLoop);
+  const behaviorManager = createBehaviorManager(
+    bus,
+    thinker,
+    memoryManager,
+    emotions,
+    agenticLoop,
+  );
 
   // Register behavior types
   const guardVillageBehavior = createGuardVillageBehavior({
-    bot, bus, actions, sensors, worldModel, memoryManager, reporter, emotions,
+    bot,
+    bus,
+    actions,
+    sensors,
+    worldModel,
+    memoryManager,
+    reporter,
+    emotions,
   });
-  behaviorManager.register('guard-village', guardVillageBehavior);
+  behaviorManager.register("guard-village", guardVillageBehavior);
 
   // --- Register scheduler tasks ---
-  scheduler.register('sensors', () => sensors.scan(), TickGroup.EVERY_TICK);
-  scheduler.register('instincts', () => {
-    survivalInstinct.evaluate();
-    selfPreservation.evaluate();
-    combatInstinct.evaluate();
-  }, TickGroup.EVERY_TICK);
+  scheduler.register("sensors", () => sensors.scan(), TickGroup.EVERY_TICK);
+  scheduler.register(
+    "instincts",
+    () => {
+      survivalInstinct.evaluate();
+      selfPreservation.evaluate();
+      combatInstinct.evaluate();
+    },
+    TickGroup.EVERY_TICK,
+  );
 
-  scheduler.register('worldModel', () => worldModel.update(), TickGroup.FAST);
-  scheduler.register('planExecution', () => planExecutor.tick(), TickGroup.MEDIUM);
-  scheduler.register('behaviorTick', () => behaviorManager.tick(), TickGroup.MEDIUM);
-  scheduler.register('motivations', () => motivations.update(), TickGroup.MEDIUM);
+  scheduler.register("worldModel", () => worldModel.update(), TickGroup.FAST);
+  scheduler.register(
+    "planExecution",
+    () => planExecutor.tick(),
+    TickGroup.MEDIUM,
+  );
+  scheduler.register(
+    "behaviorTick",
+    () => behaviorManager.tick(),
+    TickGroup.MEDIUM,
+  );
+  scheduler.register(
+    "motivations",
+    () => motivations.update(),
+    TickGroup.MEDIUM,
+  );
 
-  scheduler.register('memoryConsolidation', () => {
-    memoryManager.consolidate();
-  }, TickGroup.SLOW);
+  scheduler.register(
+    "memoryConsolidation",
+    () => {
+      memoryManager.consolidate();
+    },
+    TickGroup.SLOW,
+  );
 
-  scheduler.register('thinking', () => {
-    thinker.think();
-  }, TickGroup.SLOW);
+  scheduler.register(
+    "thinking",
+    () => {
+      thinker.think();
+    },
+    TickGroup.SLOW,
+  );
 
-  scheduler.register('reflection', () => {
-    reflection.reflect();
-  }, TickGroup.VERY_SLOW);
+  scheduler.register(
+    "reflection",
+    () => {
+      reflection.reflect();
+    },
+    TickGroup.VERY_SLOW,
+  );
 
-  scheduler.register('favorabilityDecay', () => {
-    favorability.applyAbsenceDecay();
-  }, TickGroup.VERY_SLOW);
+  scheduler.register(
+    "favorabilityDecay",
+    () => {
+      favorability.applyAbsenceDecay();
+    },
+    TickGroup.VERY_SLOW,
+  );
 
   // --- Wire up chat commands ---
-  bus.on('chat:incoming', (event) => {
+  bus.on("chat:incoming", (event) => {
     const parsed = commandParser.parse(event.data.message, event.data.username);
     if (parsed) {
-      bus.emit('command:received', parsed, EventCategory.COMMAND);
+      bus.emit("command:received", parsed, EventCategory.COMMAND);
     }
   });
 
-  // --- Command handler ---
-  bus.on('command:received', (event) => {
-    const cmd = event.data;
+  function sendCommandError(commandName, err) {
+    minecraftChat.send(`No pude ejecutar !${commandName}: ${err.message}`);
+  }
 
-    switch (cmd.command) {
-      case 'guard':
-        // Start guard behavior via LLM mission planning
-        behaviorManager.startFromInstruction({
-          message: 'Guard and protect this area. Patrol, eliminate hostiles, repair damage, report status.',
+  function runCommand(commandName, handler) {
+    Promise.resolve()
+      .then(handler)
+      .catch((err) => {
+        log.warn(`Command !${commandName} failed: ${err.message}`);
+        sendCommandError(commandName, err);
+      });
+  }
+
+  function handleNaturalCommand(cmd) {
+    if (socialMemory.isTrusted(cmd.username)) {
+      behaviorManager.startFromInstruction(
+        {
+          message: cmd.content,
           username: cmd.username,
-        }, {
+        },
+        {
           nearbyLocations: worldModel.getSnapshot().pointsOfInterest,
           currentState: { health: bot.health, food: bot.food },
-        });
-        break;
+        },
+      );
+    } else {
+      thinker.askQuestion(cmd.username, cmd.content ?? cmd.raw);
+    }
+  }
 
-      case 'stopguard':
-        behaviorManager.stopCurrent('player_command');
-        minecraftChat.send('Entendido. Dejo de vigilar.');
-        break;
+  function getHomePosition() {
+    return (
+      worldModel.getHome() ??
+      worldModel.getNearestPOI("base")?.position ??
+      worldModel.getBed()
+    );
+  }
 
-      case 'mission':
+  function formatInventorySummary() {
+    const summary = actions.inventory.getSummary();
+    const topItems = Object.entries(summary.items)
+      .sort(([, leftCount], [, rightCount]) => rightCount - leftCount)
+      .slice(0, 5)
+      .map(([name, count]) => `${name} x${count}`)
+      .join(", ");
+
+    return `Inventario: ${summary.usedSlots}/36 slots usados, ${summary.emptySlots} libres.${topItems ? ` ${topItems}` : ""}`;
+  }
+
+  // --- Command handler ---
+  bus.on("command:received", (event) => {
+    const cmd = event.data;
+
+    if (cmd.type === "natural") {
+      handleNaturalCommand(cmd);
+      return;
+    }
+
+    switch (cmd.command) {
+      case "guard": {
+        behaviorManager.startFromInstruction(
+          {
+            message:
+              "Guard and protect this area. Patrol, eliminate hostiles, repair damage, report status.",
+            username: cmd.username,
+          },
+          {
+            nearbyLocations: worldModel.getSnapshot().pointsOfInterest,
+            currentState: { health: bot.health, food: bot.food },
+          },
+        );
+        break;
+      }
+
+      case "stopguard": {
+        behaviorManager.stopCurrent("player_command");
+        minecraftChat.send("Entendido. Dejo de vigilar.");
+        break;
+      }
+
+      case "mission": {
         const status = behaviorManager.getStatus();
         if (status.active) {
-          minecraftChat.send(`Mision: ${status.active.name} (${status.active.state}, ${Math.round(status.active.duration / 60000)} min, ${status.active.stats.llmCalls} LLM calls)`);
+          minecraftChat.send(
+            `Mision: ${status.active.name} (${status.active.state}, ${Math.round(status.active.duration / 60000)} min, ${status.active.stats.llmCalls} LLM calls)`,
+          );
         } else {
-          minecraftChat.send('Sin mision activa.');
+          minecraftChat.send("Sin mision activa.");
         }
         break;
+      }
 
-      case 'report':
-        reporter.sendRoutine(`Reporte manual - HP: ${bot.health}/20 | Food: ${bot.food}/20 | Pos: ${bot.entity.position}`);
+      case "report": {
+        reporter.sendRoutine(
+          `Reporte manual - HP: ${bot.health}/20 | Food: ${bot.food}/20 | Pos: ${bot.entity.position}`,
+        );
         break;
+      }
 
-      case 'master':
+      case "master": {
         if (cmd.args.name) {
           socialMemory.setMaster(cmd.args.name);
           minecraftChat.send(`${cmd.args.name} es mi nuevo maestro.`);
@@ -291,90 +438,279 @@ export async function createAgent() {
           minecraftChat.send(`${cmd.username}, ahora eres mi maestro.`);
         }
         break;
+      }
 
-      case 'status':
-        minecraftChat.send(messageFormatter.formatStatus({
-          health: bot.health,
-          food: bot.food,
-          position: bot.entity.position,
-          task: behaviorManager.getStatus().active?.name ?? 'ninguna',
-        }));
+      case "status": {
+        minecraftChat.send(
+          messageFormatter.formatStatus({
+            health: bot.health,
+            food: bot.food,
+            position: bot.entity.position,
+            task: behaviorManager.getStatus().active?.name ?? "ninguna",
+          }),
+        );
         break;
+      }
 
-      case 'stop':
-        planExecutor.interrupt('player_command');
-        behaviorManager.stopCurrent('player_command');
+      case "stop": {
+        planExecutor.interrupt("player_command");
+        behaviorManager.stopCurrent("player_command");
+        taskQueue.clear();
         actions.movement.stopMoving();
-        minecraftChat.send('Parando todo.');
+        minecraftChat.send("Parando todo.");
         break;
+      }
 
-      case 'follow':
+      case "stay": {
+        actions.movement.stopMoving();
+        minecraftChat.send("Me quedo aqui.");
+        break;
+      }
+
+      case "follow": {
         const target = cmd.args.target ?? cmd.username;
-        actions.movement.followPlayer(target).catch(err => {
-          minecraftChat.send(`No puedo seguir a ${target}: ${err.message}`);
+        runCommand("follow", async () => {
+          await actions.movement.followPlayer(target);
+          minecraftChat.send(`Siguiendo a ${target}.`);
         });
         break;
+      }
 
-      case 'come':
+      case "come": {
         const player = bot.players[cmd.username]?.entity;
-        if (player) {
-          actions.movement.goTo(player.position);
-        } else {
-          minecraftChat.send('No te veo cerca.');
+        if (!player) {
+          minecraftChat.send("No te veo cerca.");
+          break;
         }
-        break;
 
-      case 'help':
+        runCommand("come", async () => {
+          await actions.movement.goTo(player.position);
+          minecraftChat.send("Ya estoy contigo.");
+        });
+        break;
+      }
+
+      case "go": {
+        const { x, y, z } = cmd.args;
+        if (![x, y, z].every((value) => Number.isFinite(value))) {
+          minecraftChat.send("Uso: !go <x> <y> <z>");
+          break;
+        }
+
+        runCommand("go", async () => {
+          minecraftChat.send(`Voy hacia (${x}, ${y}, ${z}).`);
+          await actions.movement.goTo({ x, y, z });
+        });
+        break;
+      }
+
+      case "mine": {
+        const { block, count = 1 } = cmd.args;
+        if (!block) {
+          minecraftChat.send("Uso: !mine <block> [count]");
+          break;
+        }
+
+        runCommand("mine", async () => {
+          const mined = await actions.mining.mineBlock(block, count);
+          minecraftChat.send(`Minado ${mined}/${count} ${block}.`);
+        });
+        break;
+      }
+
+      case "craft": {
+        const { item, count = 1 } = cmd.args;
+        if (!item) {
+          minecraftChat.send("Uso: !craft <item> [count]");
+          break;
+        }
+
+        runCommand("craft", async () => {
+          const crafted = await actions.crafting.craft(item, count);
+          minecraftChat.send(`Fabricado ${crafted}x ${item}.`);
+        });
+        break;
+      }
+
+      case "build": {
+        const { type } = cmd.args;
+        if (!type) {
+          minecraftChat.send("Uso: !build <type>");
+          break;
+        }
+
+        runCommand("build", async () => {
+          const placed = await actions.building.buildStructure(type);
+          minecraftChat.send(
+            `Construccion ${type} completada (${placed} bloques).`,
+          );
+        });
+        break;
+      }
+
+      case "farm": {
+        const farmAction = String(cmd.args.action ?? "harvest").toLowerCase();
+
+        runCommand("farm", async () => {
+          if (farmAction === "harvest") {
+            const harvested = await actions.farming.harvest();
+            minecraftChat.send(`Cosechados ${harvested} cultivos.`);
+            return;
+          }
+
+          if (farmAction === "plant") {
+            const planted = await actions.farming.plant();
+            minecraftChat.send(`Plantados ${planted} cultivos.`);
+            return;
+          }
+
+          if (farmAction === "cycle" || farmAction === "replant") {
+            const result = await actions.farming.harvestAndReplant();
+            minecraftChat.send(
+              `Granja lista: ${result.harvested} cosechados, ${result.planted} replantados.`,
+            );
+            return;
+          }
+
+          throw new Error(
+            "Accion de granja desconocida. Usa harvest, plant o cycle.",
+          );
+        });
+        break;
+      }
+
+      case "inventory": {
+        minecraftChat.send(formatInventorySummary());
+        break;
+      }
+
+      case "home": {
+        const homeAction = String(cmd.args.action ?? "go").toLowerCase();
+
+        if (homeAction === "set") {
+          worldModel.setHome(bot.entity.position);
+          minecraftChat.send("Hogar actualizado.");
+          break;
+        }
+
+        if (homeAction === "status") {
+          const home = getHomePosition();
+          minecraftChat.send(
+            home
+              ? `Hogar registrado en (${home.x}, ${home.y}, ${home.z}).`
+              : "Todavia no tengo hogar registrado.",
+          );
+          break;
+        }
+
+        if (homeAction !== "go") {
+          minecraftChat.send("Uso: !home [set|go|status]");
+          break;
+        }
+
+        runCommand("home", async () => {
+          const home = getHomePosition();
+          if (!home) {
+            throw new Error("No tengo hogar registrado");
+          }
+
+          minecraftChat.send(
+            `Volviendo a casa (${home.x}, ${home.y}, ${home.z}).`,
+          );
+          await actions.movement.goTo(home);
+        });
+        break;
+      }
+
+      case "say": {
+        if (!cmd.args.message) {
+          minecraftChat.send("Uso: !say <mensaje>");
+          break;
+        }
+
+        bus.emit(
+          "chat:outgoing",
+          { message: cmd.args.message },
+          EventCategory.CHAT,
+        );
+        break;
+      }
+
+      case "think": {
+        runCommand("think", async () => {
+          const previousCooldown = thinker.getStatus().cooldownMs;
+          thinker.askQuestion(
+            cmd.username,
+            "Haz una evaluacion breve de la situacion actual y responde al jugador.",
+          );
+          thinker.setCooldown(0);
+          try {
+            await thinker.think();
+          } finally {
+            thinker.setCooldown(previousCooldown);
+          }
+        });
+        break;
+      }
+
+      case "help": {
         minecraftChat.send(commandParser.getHelpText());
         break;
+      }
 
-      case 'mood':
+      case "mood": {
         const mood = emotions.getCurrentState();
-        minecraftChat.send(`Estado: ${mood.dominant} (intensidad: ${mood.intensity.toFixed(2)})`);
+        minecraftChat.send(
+          `Estado: ${mood.dominant} (intensidad: ${mood.intensity.toFixed(2)})`,
+        );
         break;
+      }
 
-      case 'memory':
+      case "memory": {
         const stats = memoryManager.getFullStats();
-        minecraftChat.send(`Episodica: ${stats.episodic.totalMemories} | Semantica: ${stats.semantic.totalFacts} | Espacial: ${stats.spatial.totalLocations} | Social: ${stats.social.totalEntities}`);
+        minecraftChat.send(
+          `Episodica: ${stats.episodic.totalMemories} | Semantica: ${stats.semantic.totalFacts} | Espacial: ${stats.spatial.totalLocations} | Social: ${stats.social.totalEntities}`,
+        );
         break;
+      }
 
-      default:
-        // Natural language or unknown command -> send to thinker
-        if (cmd.type === 'natural') {
-          // Natural language might be a mission instruction
-          if (socialMemory.isTrusted(cmd.username)) {
-            behaviorManager.startFromInstruction({
-              message: cmd.content,
-              username: cmd.username,
-            }, {
-              nearbyLocations: worldModel.getSnapshot().pointsOfInterest,
-              currentState: { health: bot.health, food: bot.food },
-            });
-          } else {
-            thinker.askQuestion(cmd.username, cmd.content ?? cmd.raw);
-          }
-        }
+      case "goals": {
+        const summary = goalManager.getStatus();
+        const activeGoals = goalManager
+          .getActiveGoals()
+          .slice(0, 3)
+          .map((goal) => goal.name)
+          .join(", ");
+        minecraftChat.send(
+          `Goals: activas ${summary.active}, pendientes ${summary.pending}, top ${summary.topGoal}.${activeGoals ? ` Activas: ${activeGoals}.` : ""}`,
+        );
         break;
+      }
+
+      default: {
+        minecraftChat.send(`No reconozco !${cmd.command}. Usa !help.`);
+        break;
+      }
     }
   });
 
   // --- Forward unexpected events to behavior manager ---
-  bus.on('behavior:unexpectedEvent', (event) => {
+  bus.on("behavior:unexpectedEvent", (event) => {
     behaviorManager.handleUnexpectedEvent(event);
   });
 
   // --- Handle bot events ---
-  bot.on('death', () => {
-    bus.emit('agent:death', {}, EventCategory.AGENT);
-    log.warn('I died!');
+  bot.on("death", () => {
+    bus.emit("agent:death", {}, EventCategory.AGENT);
+    log.warn("I died!");
   });
 
-  bot.on('end', (reason) => {
-    bus.emit('agent:disconnected', { reason }, EventCategory.AGENT);
+  bot.on("end", (reason) => {
+    bus.emit("agent:disconnected", { reason }, EventCategory.AGENT);
     log.warn(`Disconnected: ${reason}`);
   });
 
-  bot.on('error', (err) => {
+  bot.on("error", (err) => {
     log.error(`Bot error: ${err.message}`);
   });
 
@@ -385,29 +721,49 @@ export async function createAgent() {
     scheduler,
     actions,
     memory: memoryManager,
-    soul: { personality, emotions, motivations, favorability, proficiency, schedule },
+    soul: {
+      personality,
+      emotions,
+      motivations,
+      favorability,
+      proficiency,
+      schedule,
+    },
     autonomy: { decisionTrees, problemSolver },
     planning: { goalManager, taskDecomposer, taskQueue, planExecutor },
-    consciousness: { llm, thinker, promptBuilder, reflection, agenticLoop, toolRegistry },
-    communication: { minecraftChat, discordBridge, reporter, narrator, alertTriggers },
+    consciousness: {
+      llm,
+      thinker,
+      promptBuilder,
+      reflection,
+      agenticLoop,
+      toolRegistry,
+    },
+    communication: {
+      minecraftChat,
+      discordBridge,
+      reporter,
+      narrator,
+      alertTriggers,
+    },
     behaviors: behaviorManager,
 
     async start() {
       log.info(`${config.agent.name} starting main loop...`);
       if (discordBridge) await discordBridge.connect();
       minecraftChat.send(`${config.agent.name} online. A tus ordenes.`);
-      bus.emit('agent:started', {}, EventCategory.AGENT);
+      bus.emit("agent:started", {}, EventCategory.AGENT);
       await scheduler.start();
     },
 
     async shutdown() {
-      log.info('Shutting down...');
+      log.info("Shutting down...");
       scheduler.stop();
       if (discordBridge) await discordBridge.disconnect();
       closeDatabase();
       bot.quit();
-      bus.emit('agent:shutdown', {}, EventCategory.AGENT);
-      log.info('Shutdown complete');
+      bus.emit("agent:shutdown", {}, EventCategory.AGENT);
+      log.info("Shutdown complete");
     },
   });
 

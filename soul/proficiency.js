@@ -3,20 +3,20 @@
 // Each skill has XP, level (1-10), and affects action success/speed
 // Levels: 1-2 novice, 3-4 apprentice, 5-6 journeyman, 7-8 expert, 9-10 master
 
-import { createLogger } from '../utils/logger.js';
-import { clamp } from '../utils/helpers.js';
-import { EventCategory } from '../core/event-bus.js';
+import { createLogger } from "../utils/logger.js";
+import { clamp } from "../utils/helpers.js";
+import { EventCategory } from "../core/event-bus.js";
 
-const log = createLogger('Soul:Proficiency');
+const log = createLogger("Soul:Proficiency");
 
 const SKILLS = Object.freeze({
-  COMBAT: 'combat',
-  MINING: 'mining',
-  BUILDING: 'building',
-  FARMING: 'farming',
-  CRAFTING: 'crafting',
-  EXPLORATION: 'exploration',
-  SOCIAL: 'social',
+  COMBAT: "combat",
+  MINING: "mining",
+  BUILDING: "building",
+  FARMING: "farming",
+  CRAFTING: "crafting",
+  EXPLORATION: "exploration",
+  SOCIAL: "social",
 });
 
 // XP required per level (cumulative thresholds)
@@ -25,11 +25,11 @@ const LEVEL_THRESHOLDS = Object.freeze([
 ]);
 
 const SKILL_TIERS = Object.freeze({
-  NOVICE: { min: 1, max: 2, label: 'novice', speedMod: 1.0 },
-  APPRENTICE: { min: 3, max: 4, label: 'apprentice', speedMod: 0.9 },
-  JOURNEYMAN: { min: 5, max: 6, label: 'journeyman', speedMod: 0.8 },
-  EXPERT: { min: 7, max: 8, label: 'expert', speedMod: 0.7 },
-  MASTER: { min: 9, max: 10, label: 'master', speedMod: 0.6 },
+  NOVICE: { min: 1, max: 2, label: "novice", speedMod: 1.0 },
+  APPRENTICE: { min: 3, max: 4, label: "apprentice", speedMod: 0.9 },
+  JOURNEYMAN: { min: 5, max: 6, label: "journeyman", speedMod: 0.8 },
+  EXPERT: { min: 7, max: 8, label: "expert", speedMod: 0.7 },
+  MASTER: { min: 9, max: 10, label: "master", speedMod: 0.6 },
 });
 
 // XP granted per action type
@@ -100,7 +100,7 @@ export function createProficiency(bus, db) {
   }
 
   function loadFromDb() {
-    const rows = db.prepare('SELECT skill, xp, level FROM proficiency').all();
+    const rows = db.prepare("SELECT skill, xp, level FROM proficiency").all();
     for (const row of rows) {
       skills.set(row.skill, { xp: row.xp, level: row.level });
     }
@@ -111,11 +111,13 @@ export function createProficiency(bus, db) {
     const data = skills.get(skillName);
     if (!data) return;
 
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO proficiency (skill, xp, level, updated_at)
       VALUES (?, ?, ?, datetime('now'))
       ON CONFLICT(skill) DO UPDATE SET xp = ?, level = ?, updated_at = datetime('now')
-    `).run(skillName, data.xp, data.level, data.xp, data.level);
+    `,
+    ).run(skillName, data.xp, data.level, data.xp, data.level);
   }
 
   function addXp(skillName, action, multiplier = 1) {
@@ -131,12 +133,16 @@ export function createProficiency(bus, db) {
 
     if (leveledUp) {
       log.info(`LEVEL UP! ${skillName}: ${current.level} -> ${newLevel}`);
-      bus.emit('proficiency:levelUp', {
-        skill: skillName,
-        oldLevel: current.level,
-        newLevel,
-        tier: getTierForLevel(newLevel),
-      }, EventCategory.SOUL);
+      bus.emit(
+        "proficiency:levelUp",
+        {
+          skill: skillName,
+          oldLevel: current.level,
+          newLevel,
+          tier: getTierForLevel(newLevel),
+        },
+        EventCategory.SOUL,
+      );
     }
 
     return { xpGain, newXp, newLevel, leveledUp };
@@ -191,53 +197,69 @@ export function createProficiency(bus, db) {
 
   // Wire events to XP gains
   function wireEvents() {
-    bus.on('combat:ended', (event) => {
-      if (event.data.reason === 'target_gone') {
-        addXp(SKILLS.COMBAT, 'killed_hostile');
+    const getCountMultiplier = (event) =>
+      Math.max(1, Number(event.data.count ?? 1) || 1);
+
+    bus.on("combat:ended", (event) => {
+      if (event.data.reason === "target_gone") {
+        addXp(SKILLS.COMBAT, "killed_hostile");
       }
     });
 
-    bus.on('health:damage', () => {
-      addXp(SKILLS.COMBAT, 'took_damage');
+    bus.on("health:damage", () => {
+      addXp(SKILLS.COMBAT, "took_damage");
     });
 
-    bus.on('action:mined', (event) => {
-      const block = event.data.blockName ?? '';
-      if (block.includes('diamond')) {
-        addXp(SKILLS.MINING, 'mined_diamond');
-      } else if (block.includes('ore')) {
-        addXp(SKILLS.MINING, 'mined_ore');
+    bus.on("action:mined", (event) => {
+      const block = event.data.blockName ?? "";
+      const multiplier = getCountMultiplier(event);
+      if (block.includes("diamond")) {
+        addXp(SKILLS.MINING, "mined_diamond", multiplier);
+      } else if (block.includes("ore")) {
+        addXp(SKILLS.MINING, "mined_ore", multiplier);
       } else {
-        addXp(SKILLS.MINING, 'mined_block');
+        addXp(SKILLS.MINING, "mined_block", multiplier);
       }
     });
 
-    bus.on('action:placed', () => {
-      addXp(SKILLS.BUILDING, 'placed_block');
+    bus.on("action:placed", (event) => {
+      addXp(SKILLS.BUILDING, "placed_block", getCountMultiplier(event));
     });
 
-    bus.on('action:crafted', () => {
-      addXp(SKILLS.CRAFTING, 'crafted_item');
+    bus.on("action:crafted", (event) => {
+      addXp(SKILLS.CRAFTING, "crafted_item", getCountMultiplier(event));
     });
 
-    bus.on('action:harvested', () => {
-      addXp(SKILLS.FARMING, 'harvested_crop');
+    bus.on("action:smelted", (event) => {
+      addXp(SKILLS.CRAFTING, "smelted_item", getCountMultiplier(event));
     });
 
-    bus.on('action:planted', () => {
-      addXp(SKILLS.FARMING, 'planted_crop');
+    bus.on("action:harvested", (event) => {
+      addXp(SKILLS.FARMING, "harvested_crop", getCountMultiplier(event));
     });
 
-    bus.on('spatial:discovered', () => {
-      addXp(SKILLS.EXPLORATION, 'discovered_location');
+    bus.on("action:planted", (event) => {
+      addXp(SKILLS.FARMING, "planted_crop", getCountMultiplier(event));
     });
 
-    bus.on('command:received', () => {
-      addXp(SKILLS.SOCIAL, 'completed_command');
+    bus.on("action:bred", (event) => {
+      addXp(SKILLS.FARMING, "bred_animal", getCountMultiplier(event));
     });
 
-    bus.on('task:completed', () => {
-      addXp(SKILLS.SOCIAL, 'completed_mission');
+    bus.on("spatial:discovered", () => {
+      addXp(SKILLS.EXPLORATION, "discovered_location");
+    });
+
+    bus.on("command:received", (event) => {
+      if (event.data.type === "command") {
+        addXp(SKILLS.SOCIAL, "completed_command");
+      } else {
+        addXp(SKILLS.SOCIAL, "conversation");
+      }
+    });
+
+    bus.on("task:completed", () => {
+      addXp(SKILLS.SOCIAL, "completed_mission");
     });
   }
 

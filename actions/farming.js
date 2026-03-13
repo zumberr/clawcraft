@@ -1,18 +1,19 @@
 // ClawCraft - Farming Actions
 // Plant, harvest, breed animals
 
-import { createLogger } from '../utils/logger.js';
-import { formatPos } from '../utils/helpers.js';
+import { createLogger } from "../utils/logger.js";
+import { formatPos } from "../utils/helpers.js";
+import { EventCategory } from "../core/event-bus.js";
 
-const log = createLogger('Action:Farming');
+const log = createLogger("Action:Farming");
 
 const CROP_SEEDS = {
-  wheat: 'wheat_seeds',
-  carrots: 'carrot',
-  potatoes: 'potato',
-  beetroots: 'beetroot_seeds',
-  melon_stem: 'melon_seeds',
-  pumpkin_stem: 'pumpkin_seeds',
+  wheat: "wheat_seeds",
+  carrots: "carrot",
+  potatoes: "potato",
+  beetroots: "beetroot_seeds",
+  melon_stem: "melon_seeds",
+  pumpkin_stem: "pumpkin_seeds",
 };
 
 const MATURE_AGE = {
@@ -22,9 +23,14 @@ const MATURE_AGE = {
   beetroots: 3,
 };
 
-export function createFarming(bot) {
+export function createFarming(bot, bus = null) {
+  function emitAction(eventName, data) {
+    if (!bus) return;
+    bus.emit(eventName, data, EventCategory.TASK);
+  }
+
   async function harvest(cropName = null, radius = 16) {
-    const mcData = require('minecraft-data')(bot.version);
+    const mcData = require("minecraft-data")(bot.version);
     const cropNames = cropName ? [cropName] : Object.keys(MATURE_AGE);
     let harvested = 0;
 
@@ -50,21 +56,35 @@ export function createFarming(bot) {
         // Move close
         if (bot.entity.position.distanceTo(pos) > 4) {
           try {
-            const { goals, Movements } = require('mineflayer-pathfinder');
+            const { goals, Movements } = require("mineflayer-pathfinder");
             const movements = new Movements(bot, mcData);
             bot.pathfinder.setMovements(movements);
-            bot.pathfinder.setGoal(new goals.GoalGetToBlock(pos.x, pos.y, pos.z));
+            bot.pathfinder.setGoal(
+              new goals.GoalGetToBlock(pos.x, pos.y, pos.z),
+            );
             await new Promise((resolve, reject) => {
               const timer = setTimeout(resolve, 10000);
-              bot.once('goal_reached', () => { clearTimeout(timer); resolve(); });
+              bot.once("goal_reached", () => {
+                clearTimeout(timer);
+                resolve();
+              });
             });
-          } catch { continue; }
+          } catch {
+            continue;
+          }
         }
 
         try {
           await bot.dig(block);
           harvested++;
-        } catch { /* skip */ }
+          emitAction("action:harvested", {
+            cropName: name,
+            position: { x: pos.x, y: pos.y, z: pos.z },
+            count: 1,
+          });
+        } catch {
+          /* skip */
+        }
       }
     }
 
@@ -72,12 +92,12 @@ export function createFarming(bot) {
     return harvested;
   }
 
-  async function plant(cropName = 'wheat', radius = 16) {
-    const mcData = require('minecraft-data')(bot.version);
+  async function plant(cropName = "wheat", radius = 16) {
+    const mcData = require("minecraft-data")(bot.version);
     const seedName = CROP_SEEDS[cropName];
     if (!seedName) throw new Error(`Unknown crop: ${cropName}`);
 
-    const seeds = bot.inventory.items().find(i => i.name === seedName);
+    const seeds = bot.inventory.items().find((i) => i.name === seedName);
     if (!seeds) throw new Error(`No ${seedName} in inventory`);
 
     // Find farmland blocks
@@ -95,42 +115,57 @@ export function createFarming(bot) {
     for (const pos of farmlandBlocks) {
       // Check if something is already planted above
       const above = bot.blockAt(pos.offset(0, 1, 0));
-      if (above && above.name !== 'air') continue;
+      if (above && above.name !== "air") continue;
 
       // Move close
       if (bot.entity.position.distanceTo(pos) > 4) {
         try {
-          const { goals, Movements } = require('mineflayer-pathfinder');
+          const { goals, Movements } = require("mineflayer-pathfinder");
           const movements = new Movements(bot, mcData);
           bot.pathfinder.setMovements(movements);
           bot.pathfinder.setGoal(new goals.GoalGetToBlock(pos.x, pos.y, pos.z));
           await new Promise((resolve) => {
             const timer = setTimeout(resolve, 10000);
-            bot.once('goal_reached', () => { clearTimeout(timer); resolve(); });
+            bot.once("goal_reached", () => {
+              clearTimeout(timer);
+              resolve();
+            });
           });
-        } catch { continue; }
+        } catch {
+          continue;
+        }
       }
 
       try {
-        await bot.equip(seeds, 'hand');
+        await bot.equip(seeds, "hand");
         const farmBlock = bot.blockAt(pos);
         await bot.placeBlock(farmBlock, { x: 0, y: 1, z: 0 });
         planted++;
+        emitAction("action:planted", {
+          cropName,
+          seedName,
+          position: { x: pos.x, y: pos.y + 1, z: pos.z },
+          count: 1,
+        });
 
         // Check if we ran out of seeds
-        const remaining = bot.inventory.items().find(i => i.name === seedName);
+        const remaining = bot.inventory
+          .items()
+          .find((i) => i.name === seedName);
         if (!remaining) break;
-      } catch { /* skip */ }
+      } catch {
+        /* skip */
+      }
     }
 
     log.info(`Planted ${planted} ${cropName}`);
     return planted;
   }
 
-  async function harvestAndReplant(cropName = 'wheat', radius = 16) {
+  async function harvestAndReplant(cropName = "wheat", radius = 16) {
     const harvested = await harvest(cropName, radius);
     // Short pause to let drops settle
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     const planted = await plant(cropName, radius);
     log.info(`Harvest & replant: ${harvested} harvested, ${planted} planted`);
     return { harvested, planted };
@@ -138,34 +173,48 @@ export function createFarming(bot) {
 
   async function breedAnimals(animalType, radius = 16) {
     const breedItems = {
-      cow: 'wheat', sheep: 'wheat', chicken: 'wheat_seeds',
-      pig: 'carrot', rabbit: 'carrot', horse: 'golden_apple',
+      cow: "wheat",
+      sheep: "wheat",
+      chicken: "wheat_seeds",
+      pig: "carrot",
+      rabbit: "carrot",
+      horse: "golden_apple",
     };
 
     const foodName = breedItems[animalType];
     if (!foodName) throw new Error(`Don't know how to breed ${animalType}`);
 
-    const food = bot.inventory.items().find(i => i.name === foodName);
+    const food = bot.inventory.items().find((i) => i.name === foodName);
     if (!food) throw new Error(`No ${foodName} to breed ${animalType}`);
 
-    const animals = Object.values(bot.entities).filter(e =>
-      e.name === animalType &&
-      e.position.distanceTo(bot.entity.position) < radius
+    const animals = Object.values(bot.entities).filter(
+      (e) =>
+        e.name === animalType &&
+        e.position.distanceTo(bot.entity.position) < radius,
     );
 
     if (animals.length < 2) {
-      throw new Error(`Need at least 2 ${animalType} nearby (found ${animals.length})`);
+      throw new Error(
+        `Need at least 2 ${animalType} nearby (found ${animals.length})`,
+      );
     }
 
-    await bot.equip(food, 'hand');
+    await bot.equip(food, "hand");
 
     let bred = 0;
     for (const animal of animals.slice(0, 2)) {
       try {
         await bot.useOn(animal);
         bred++;
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch { /* skip */ }
+        emitAction("action:bred", {
+          animalType,
+          target: animal.name ?? animal.displayName ?? animalType,
+          count: 1,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      } catch {
+        /* skip */
+      }
     }
 
     log.info(`Bred ${bred} ${animalType}`);
