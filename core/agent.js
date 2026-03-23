@@ -290,6 +290,75 @@ export async function createAgent() {
     TickGroup.MEDIUM,
   );
 
+  // --- CEREBRO QUE ACTUA: Autonomous decision-trees evaluation ---
+  // Periodically evaluate decision trees and enqueue autonomous actions
+  function computeHomeDistance() {
+    const home = worldModel.getHome?.() ?? worldModel.getNearestPOI?.("base")?.position;
+    if (!home || !bot.entity?.position) return 999;
+    const dx = bot.entity.position.x - home.x;
+    const dz = bot.entity.position.z - home.z;
+    return Math.sqrt(dx * dx + dz * dz);
+  }
+
+  scheduler.register(
+    "autonomousDecisions",
+    () => {
+      // Guard: don't flood the queue with autonomous decisions
+      if (taskQueue.size() > MAX_QUEUE_SIZE) return;
+
+      const state = {
+        health: bot.health,
+        food: bot.food,
+        hasFood: actions.inventory.hasItem?.("food") ?? bot.food > 6,
+        inventoryFull: actions.inventory.isFull?.() ?? false,
+        nightFalling: !(memoryManager.working.recall("isDay") ?? true),
+        toolBroken: false,
+        homeDistance: computeHomeDistance(),
+        nearestHostile: worldModel.getSnapshot?.().nearestHostile ?? null,
+        currentTask: behaviorManager.getStatus?.().active?.name ?? null,
+        armorLevel: 0,
+        hasWeapon: false,
+        hasBed: false,
+      };
+
+      const decision = decisionTrees.evaluate(state);
+      if (!decision) return;
+
+      // Only act on SILENT/INFORM decisions automatically
+      if (decision.autonomy <= decisionTrees.AutonomyLevel.INFORM) {
+        const task = {
+          id: nextTaskId("autonomy"),
+          name: `autonomy: ${decision.reason}`,
+          type: decision.action,
+          params: decision.params ?? {},
+          source: "decision_tree",
+          maxAttempts: 2,
+        };
+        taskQueue.enqueue(task, true); // priority
+        log.info(`DecisionTree autonomous action: ${decision.action} (${decision.reason})`);
+
+        if (decision.autonomy === decisionTrees.AutonomyLevel.INFORM) {
+          bus.emit("chat:outgoing", { message: decision.reason }, EventCategory.CHAT);
+        }
+      } else {
+        // ASK level — notify player
+        bus.emit("chat:outgoing", {
+          message: `Necesito ayuda: ${decision.reason}`,
+        }, EventCategory.CHAT);
+      }
+    },
+    TickGroup.MEDIUM,
+  );
+
+  // --- Emotional decay (return to baseline over time) ---
+  scheduler.register(
+    "emotionalDecay",
+    () => {
+      emotions.decay();
+    },
+    TickGroup.SLOW,
+  );
+
   scheduler.register(
     "memoryConsolidation",
     () => {
@@ -691,6 +760,136 @@ export async function createAgent() {
         minecraftChat.send(`No reconozco !${cmd.command}. Usa !help.`);
         break;
       }
+    }
+  });
+
+  // --- CEREBRO QUE ACTUA: Shared infrastructure ---
+  let cerebroTaskIdCounter = 0;
+  const MAX_QUEUE_SIZE = 50;
+  const ESCALATION_WINDOW_MS = 60000;
+  const MAX_ESCALATIONS_PER_WINDOW = 3;
+  const recentEscalations = new Map(); // taskType -> { count, lastTime }
+
+  function nextTaskId(prefix) {
+    return `${prefix}-${Date.now()}-${cerebroTaskIdCounter++}`;
+  }
+
+  // --- CEREBRO QUE ACTUA: Connect thinker:actions → taskQueue ---
+  // When the LLM suggests actions, enqueue them as real tasks
+  bus.on("thinker:actions", (event) => {
+    const { actions: suggestedActions } = event.data;
+    if (!Array.isArray(suggestedActions) || suggestedActions.length === 0) return;
+
+    // Guard: don't overflow the queue
+    if (taskQueue.size() + suggestedActions.length > MAX_QUEUE_SIZE) {
+      log.warn(`Task queue near capacity (${taskQueue.size()}), dropping thinker actions`);
+      return;
+    }
+
+    const tasks = suggestedActions
+      .filter((action) => {
+        const type = action?.type ?? action?.name;
+        return typeof type === "string" && type.length > 0 && type.length < 64;
+      })
+      .map((action, index) => ({
+        id: nextTaskId("thinker"),
+        name: String(action.name ?? action.type ?? "llm_action").slice(0, 128),
+        type: String(action.type ?? "custom").slice(0, 64),
+        params: (action.params && typeof action.params === "object" && !Array.isArray(action.params))
+          ? action.params
+          : {},
+        source: "thinker",
+        maxAttempts: 3,
+      }));
+
+    if (tasks.length === 0) return;
+
+    taskQueue.enqueueBatch(tasks);
+    log.info(`Thinker enqueued ${tasks.length} actions into task queue`);
+  });
+
+  // --- CEREBRO QUE ACTUA: Connect soul:emotion → emotions.applyShift() ---
+  // When the LLM expresses an emotion, apply it to the real emotional state
+  bus.on("soul:emotion", (event) => {
+    const { emotion } = event.data;
+    if (!emotion) return;
+
+    if (typeof emotion === "string") {
+      emotions.applyShift(emotion, "LLM conscious thought");
+    } else if (typeof emotion === "object") {
+      // Support { name: "happy", reason: "..." } format
+      const name = emotion.name ?? emotion.type ?? emotion.emotion;
+      const reason = emotion.reason ?? "LLM conscious thought";
+      if (name) {
+        emotions.applyShift(name, reason);
+      }
+    }
+  });
+
+  // --- CEREBRO QUE ACTUA: Connect task:failed → problemSolver + decisionTrees ---
+  // When a task fails permanently, invoke problem-solver for recovery
+  bus.on("task:failed", (event) => {
+    const { task, error } = event.data;
+    if (!task) return;
+
+    // Guard: do not recover tasks that are already recovery attempts (prevents infinite loop)
+    if (task.source === "problem_solver") {
+      log.warn(`Recovery task "${task.name}" itself failed - not re-recovering`);
+      return;
+    }
+
+    const failedTask = {
+      type: task.type,
+      name: task.name,
+      params: task.params ?? {},
+      error,
+      retryCount: task.attempts ?? 0,
+    };
+
+    const resolution = problemSolver.resolve(failedTask);
+
+    if (resolution.resolved && resolution.action) {
+      // Guard: don't overflow the queue
+      if (taskQueue.size() > MAX_QUEUE_SIZE) {
+        log.warn(`Task queue full, dropping recovery for "${task.name}"`);
+        return;
+      }
+
+      // Problem solver found a fix — enqueue the recovery action
+      const recoveryTask = {
+        id: nextTaskId("recovery"),
+        name: `recovery: ${resolution.reason}`,
+        type: resolution.action.type ?? task.type,
+        params: resolution.action.params ?? task.params,
+        source: "problem_solver",
+        maxAttempts: 2,
+      };
+      taskQueue.enqueue(recoveryTask, true); // priority enqueue
+      log.info(`ProblemSolver resolved "${task.name}" via ${resolution.strategy}: ${resolution.reason}`);
+    } else if (resolution.strategy === "escalate") {
+      // Circuit breaker: limit escalations per task type to prevent LLM cost loops
+      const now = Date.now();
+      const key = task.type;
+      const record = recentEscalations.get(key) ?? { count: 0, lastTime: 0 };
+
+      if (now - record.lastTime > ESCALATION_WINDOW_MS) {
+        record.count = 0;
+      }
+
+      if (record.count >= MAX_ESCALATIONS_PER_WINDOW) {
+        log.error(`Escalation limit reached for "${task.type}" - dropping`);
+        return;
+      }
+
+      recentEscalations.set(key, { count: record.count + 1, lastTime: now });
+
+      // All code-level strategies failed — escalate to LLM consciousness
+      const sanitizedError = String(error).slice(0, 200).replace(/[^\w\s.:,\-()]/g, "");
+      log.warn(`ProblemSolver escalating "${task.name}" to thinker`);
+      thinker.askQuestion(
+        "system",
+        `Task "${task.name}" (type: ${task.type}) failed after all recovery attempts. Error: ${sanitizedError}. What should I do instead?`,
+      );
     }
   });
 

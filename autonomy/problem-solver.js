@@ -257,13 +257,13 @@ export function createProblemSolver(bus, actions, memoryManager) {
   }
 
   function logAttempt(taskType, error, strategy, resolved) {
-    failureLog.push({
+    failureLog = [...failureLog, {
       taskType,
       error: error?.message ?? String(error),
       strategy,
       resolved,
       timestamp: Date.now(),
-    });
+    }];
 
     if (failureLog.length > MAX_LOG) {
       failureLog = failureLog.slice(-MAX_LOG);
