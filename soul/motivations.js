@@ -90,6 +90,7 @@ export function createMotivations(bus) {
         need: strongest.need,
         level: strongest.level,
         suggestion: getSuggestion(strongest.need),
+        goalName: getSuggestionGoalName(strongest.need),
       }, EventCategory.SOUL);
     }
   }
@@ -121,6 +122,19 @@ export function createMotivations(bus) {
     return suggestions[need] ?? 'Do something productive';
   }
 
+  function getSuggestionGoalName(need) {
+    const goalNames = {
+      [NEEDS.SURVIVAL]: 'eat_food',
+      [NEEDS.SECURITY]: 'patrol_area',
+      [NEEDS.SOCIAL]: 'follow_master',
+      [NEEDS.COMPETENCE]: 'make_stone_tools',
+      [NEEDS.EXPLORATION]: 'explore_area',
+      [NEEDS.CREATION]: 'tend_farm',
+      [NEEDS.PURPOSE]: 'organize_inventory',
+    };
+    return goalNames[need] ?? null;
+  }
+
   function getDrives() {
     return Object.freeze({ ...drives });
   }
@@ -142,6 +156,7 @@ export function createMotivations(bus) {
     increase,
     getDrives,
     getStrongestDrive,
+    getSuggestionGoalName,
     getStatus,
   });
 }

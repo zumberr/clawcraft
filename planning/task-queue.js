@@ -113,6 +113,18 @@ export function createTaskQueue() {
     return [...queue];
   }
 
+  function hasTask(taskId) {
+    if (!taskId) return false;
+    if (currentTask?.id === taskId) return true;
+    return queue.some((task) => task.id === taskId);
+  }
+
+  function hasTasksForGoal(goalId) {
+    if (!goalId) return false;
+    if (currentTask?.goalId === goalId) return true;
+    return queue.some((task) => task.goalId === goalId);
+  }
+
   function getHistory(limit = 10) {
     return history.slice(-limit);
   }
@@ -147,6 +159,8 @@ export function createTaskQueue() {
     remove,
     getCurrent,
     getQueue,
+    hasTask,
+    hasTasksForGoal,
     getHistory,
     size,
     isEmpty,
