@@ -282,6 +282,57 @@ export function createDecisionTrees(bus, memoryManager, emotions) {
   }
 
   /**
+   * Decide what to do when idle (no urgent situations, no active goals)
+   * Uses current mood to pick a low-priority fallback activity
+   * Returns goal_request action type so agent.js routes through goalManager
+   * instead of raw taskQueue (avoids bypassing task decomposition)
+   */
+  function onIdle(state) {
+    const { currentMood, scheduledActivity } = state;
+
+    const moodGoals = {
+      protective: { goalName: 'patrol_area', reason: 'Idle and feeling protective - patrolling' },
+      curious: { goalName: 'explore_area', reason: 'Idle and feeling curious - exploring' },
+      busy: { goalName: 'organize_inventory', reason: 'Idle but in work mood - organizing' },
+      attentive: { goalName: 'follow_master', reason: 'Idle and attentive - seeking master' },
+      relaxed: { goalName: 'rest_near_bed', reason: 'Idle and relaxed - resting' },
+    };
+
+    // Try mood-based goal first
+    if (currentMood && moodGoals[currentMood]) {
+      const { goalName, reason } = moodGoals[currentMood];
+      return {
+        action: 'goal_request',
+        params: { goalName },
+        autonomy: AutonomyLevel.SILENT,
+        reason,
+      };
+    }
+
+    // Fallback to schedule-based goal
+    if (scheduledActivity) {
+      const activityGoals = {
+        work: { goalName: 'get_wood', reason: 'Idle during work hours - gathering resources' },
+        farm: { goalName: 'tend_farm', reason: 'Idle during farm hours - tending crops' },
+        guard: { goalName: 'patrol_area', reason: 'Idle during guard hours - patrolling' },
+        rest: { goalName: 'rest_near_bed', reason: 'Idle during rest hours - resting' },
+      };
+
+      if (activityGoals[scheduledActivity]) {
+        const { goalName, reason } = activityGoals[scheduledActivity];
+        return {
+          action: 'goal_request',
+          params: { goalName },
+          autonomy: AutonomyLevel.SILENT,
+          reason,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Master decision dispatcher - evaluates all trees for current state
    */
   function evaluate(state) {
@@ -312,6 +363,12 @@ export function createDecisionTrees(bus, memoryManager, emotions) {
       if (d) decisions.push({ ...d, priority: 7 });
     }
 
+    // Phase 3: Idle fallback when no urgent decisions exist
+    if (decisions.length === 0 && state.isIdle) {
+      const d = onIdle(state);
+      if (d) decisions.push({ ...d, priority: 1 });
+    }
+
     // Sort by priority (highest first)
     decisions.sort((a, b) => b.priority - a.priority);
 
@@ -326,6 +383,7 @@ export function createDecisionTrees(bus, memoryManager, emotions) {
     onUnknownPlayer,
     onToolBroken,
     onHungry,
+    onIdle,
     AutonomyLevel,
   });
 }

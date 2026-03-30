@@ -56,6 +56,56 @@ const TEMPLATES = {
     { type: TaskType.CRAFT, name: 'Make bed', params: { item: 'white_bed', count: 1 } },
     { type: TaskType.BUILD, name: 'Place bed', params: { item: 'white_bed' } },
   ],
+
+  // --- Phase 3: Autonomous life templates ---
+
+  'eat_food': [
+    { type: TaskType.CUSTOM, name: 'Find food in inventory', params: { action: 'find_food' } },
+    { type: TaskType.INTERACT, name: 'Eat food item', params: { action: 'eat' } },
+  ],
+
+  'rest_near_bed': [
+    { type: TaskType.MOVE, name: 'Go to bed or home', params: { target: 'bed', radius: 64 } },
+    { type: TaskType.WAIT, name: 'Rest and recover', params: { duration: 30000 } },
+  ],
+
+  'patrol_area': [
+    { type: TaskType.MOVE, name: 'Go to home base', params: { target: 'home', radius: 8 } },
+    { type: TaskType.MOVE, name: 'Patrol north', params: { target: 'relative', offset: { x: 30, y: 0, z: 0 } } },
+    { type: TaskType.LOOK, name: 'Scan north sector', params: { action: 'survey' } },
+    { type: TaskType.MOVE, name: 'Patrol east', params: { target: 'relative', offset: { x: 0, y: 0, z: 30 } } },
+    { type: TaskType.LOOK, name: 'Scan east sector', params: { action: 'survey' } },
+    { type: TaskType.MOVE, name: 'Patrol south', params: { target: 'relative', offset: { x: -30, y: 0, z: 0 } } },
+    { type: TaskType.LOOK, name: 'Scan south sector', params: { action: 'survey' } },
+    { type: TaskType.MOVE, name: 'Return to base', params: { target: 'home', radius: 8 } },
+  ],
+
+  'explore_area': [
+    { type: TaskType.MOVE, name: 'Head to unexplored area', params: { target: 'random', radius: 60 } },
+    { type: TaskType.LOOK, name: 'Survey new area', params: { action: 'survey' } },
+    { type: TaskType.MOVE, name: 'Continue exploring', params: { target: 'random', radius: 40 } },
+    { type: TaskType.LOOK, name: 'Mark points of interest', params: { action: 'mark_poi' } },
+    { type: TaskType.MOVE, name: 'Return home', params: { target: 'home', radius: 16 } },
+  ],
+
+  'follow_master': [
+    { type: TaskType.LOOK, name: 'Locate master', params: { entity: 'master' } },
+    { type: TaskType.MOVE, name: 'Go to master', params: { target: 'master', followDistance: 4 } },
+    { type: TaskType.WAIT, name: 'Stay near master', params: { duration: 10000 } },
+  ],
+
+  'organize_inventory': [
+    { type: TaskType.CUSTOM, name: 'Sort inventory items', params: { action: 'sort_inventory' } },
+    { type: TaskType.MOVE, name: 'Go to nearest chest', params: { target: 'chest', radius: 32 } },
+    { type: TaskType.STORE, name: 'Store surplus items', params: { strategy: 'keep_essentials' } },
+  ],
+
+  'tend_farm': [
+    { type: TaskType.MOVE, name: 'Go to farm area', params: { target: 'farmland', radius: 32 } },
+    { type: TaskType.FARM, name: 'Harvest mature crops', params: { action: 'harvest' } },
+    { type: TaskType.FARM, name: 'Replant crops', params: { action: 'plant' } },
+    { type: TaskType.GATHER, name: 'Collect drops', params: { radius: 16 } },
+  ],
 };
 
 export function createTaskDecomposer(actions, semanticMemory) {

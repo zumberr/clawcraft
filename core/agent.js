@@ -32,7 +32,7 @@ import { createSpatialMemory } from "../memory/spatial-memory.js";
 import { createSocialMemory } from "../memory/social-memory.js";
 import { createMemoryManager } from "../memory/memory-manager.js";
 
-import { createGoalManager } from "../planning/goal-manager.js";
+import { createGoalManager, GoalSource } from "../planning/goal-manager.js";
 import { createTaskDecomposer } from "../planning/task-decomposer.js";
 import { createTaskQueue } from "../planning/task-queue.js";
 import { createPlanExecutor } from "../planning/plan-executor.js";
@@ -69,6 +69,9 @@ import { createAgenticLoop } from "../consciousness/agentic-loop.js";
 import { createBehaviorManager } from "./behavior-manager.js";
 import { createGuardVillageBehavior } from "../behaviors/guard-village.js";
 import { createReporter } from "../communication/reporter.js";
+
+import { createMood } from "../soul/mood.js";
+import { createLifeDriver } from "../soul/life-driver.js";
 
 import { createDecisionTrees } from "../autonomy/decision-trees.js";
 import { createProblemSolver } from "../autonomy/problem-solver.js";
@@ -261,6 +264,11 @@ export async function createAgent() {
   });
   behaviorManager.register("guard-village", guardVillageBehavior);
 
+  // --- Phase 3: Mood & Life Driver (autonomous goal creation) ---
+  const mood = createMood(bus, emotions, schedule, motivations, behaviorManager);
+  const lifeDriver = createLifeDriver(bus, goalManager, behaviorManager, motivations, schedule);
+  lifeDriver.initialize();
+
   // --- Register scheduler tasks ---
   scheduler.register("sensors", () => sensors.scan(), TickGroup.EVERY_TICK);
   scheduler.register(
@@ -287,6 +295,11 @@ export async function createAgent() {
   scheduler.register(
     "motivations",
     () => motivations.update(),
+    TickGroup.MEDIUM,
+  );
+  scheduler.register(
+    "moodUpdate",
+    () => mood.update(),
     TickGroup.MEDIUM,
   );
 
@@ -319,6 +332,9 @@ export async function createAgent() {
         armorLevel: 0,
         hasWeapon: false,
         hasBed: false,
+        currentMood: mood.getCurrentMood(),
+        scheduledActivity: schedule.getCurrentActivity()?.activity ?? null,
+        isIdle: !behaviorManager.getActive() && taskQueue.size() === 0,
       };
 
       const decision = decisionTrees.evaluate(state);
@@ -326,16 +342,32 @@ export async function createAgent() {
 
       // Only act on SILENT/INFORM decisions automatically
       if (decision.autonomy <= decisionTrees.AutonomyLevel.INFORM) {
-        const task = {
-          id: nextTaskId("autonomy"),
-          name: `autonomy: ${decision.reason}`,
-          type: decision.action,
-          params: decision.params ?? {},
-          source: "decision_tree",
-          maxAttempts: 2,
-        };
-        taskQueue.enqueue(task, true); // priority
-        log.info(`DecisionTree autonomous action: ${decision.action} (${decision.reason})`);
+        // goal_request: route through goalManager (proper decomposition path)
+        if (decision.action === 'goal_request' && decision.params?.goalName) {
+          const existingGoals = goalManager.getGoalsBySource(GoalSource.AUTONOMOUS);
+          const hasDuplicate = existingGoals.some(g => g.name === decision.params.goalName);
+          if (!hasDuplicate) {
+            goalManager.addGoal({
+              name: decision.params.goalName,
+              description: decision.reason,
+              priority: 0.3,
+              source: GoalSource.AUTONOMOUS,
+              metadata: { origin: 'idle_fallback' },
+            });
+            log.info(`DecisionTree idle goal: ${decision.params.goalName} (${decision.reason})`);
+          }
+        } else {
+          const task = {
+            id: nextTaskId("autonomy"),
+            name: `autonomy: ${decision.reason}`,
+            type: decision.action,
+            params: decision.params ?? {},
+            source: "decision_tree",
+            maxAttempts: 2,
+          };
+          taskQueue.enqueue(task, true); // priority
+          log.info(`DecisionTree autonomous action: ${decision.action} (${decision.reason})`);
+        }
 
         if (decision.autonomy === decisionTrees.AutonomyLevel.INFORM) {
           bus.emit("chat:outgoing", { message: decision.reason }, EventCategory.CHAT);
@@ -728,9 +760,10 @@ export async function createAgent() {
       }
 
       case "mood": {
-        const mood = emotions.getCurrentState();
+        const currentMood = mood.getCurrentMood();
+        const emotionState = emotions.getCurrentState();
         minecraftChat.send(
-          `Estado: ${mood.dominant} (intensidad: ${mood.intensity.toFixed(2)})`,
+          `Animo: ${currentMood} | Emocion: ${emotionState.dominant} (${emotionState.intensity.toFixed(2)})`,
         );
         break;
       }
@@ -927,8 +960,9 @@ export async function createAgent() {
       favorability,
       proficiency,
       schedule,
+      mood,
     },
-    autonomy: { decisionTrees, problemSolver },
+    autonomy: { decisionTrees, problemSolver, lifeDriver },
     planning: { goalManager, taskDecomposer, taskQueue, planExecutor },
     consciousness: {
       llm,
