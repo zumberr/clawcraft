@@ -94,8 +94,8 @@ export function createLifeDriver(bus, goalManager, behaviorManager, motivations,
     // Check cooldown
     if (isOnCooldown(goalName)) return;
 
-    // Check for duplicate active/pending goals
-    if (hasDuplicateGoal(goalName, GoalSource.AUTONOMOUS)) return;
+    // Check for duplicate active/pending goals across all sources
+    if (hasDuplicateGoal(goalName)) return;
 
     const priority = Math.round(mapping.basePriority * level * 100) / 100;
 
@@ -134,8 +134,8 @@ export function createLifeDriver(bus, goalManager, behaviorManager, motivations,
     // Check cooldown
     if (isOnCooldown(goalName)) return;
 
-    // Check for duplicate (could exist from motivation system)
-    if (hasDuplicateGoal(goalName, GoalSource.SCHEDULE)) return;
+    // Check for duplicate (could exist from motivation/autonomous system)
+    if (hasDuplicateGoal(goalName)) return;
 
     goalManager.addGoal({
       name: goalName,
@@ -175,9 +175,15 @@ export function createLifeDriver(bus, goalManager, behaviorManager, motivations,
     return Date.now() - lastCreated < cooldown;
   }
 
-  function hasDuplicateGoal(goalName, source) {
-    const existing = goalManager.getGoalsBySource(source);
-    return existing.some(g => g.name === goalName);
+  function hasDuplicateGoal(goalName) {
+    const sources = Object.values(GoalSource);
+    for (const source of sources) {
+      const existing = goalManager.getGoalsBySource(source);
+      if (existing.some((g) => g.name === goalName)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function setEnabled(value) {

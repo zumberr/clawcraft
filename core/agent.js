@@ -344,8 +344,9 @@ export async function createAgent() {
       if (decision.autonomy <= decisionTrees.AutonomyLevel.INFORM) {
         // goal_request: route through goalManager (proper decomposition path)
         if (decision.action === 'goal_request' && decision.params?.goalName) {
-          const existingGoals = goalManager.getGoalsBySource(GoalSource.AUTONOMOUS);
-          const hasDuplicate = existingGoals.some(g => g.name === decision.params.goalName);
+          const hasDuplicate = Object.values(GoalSource).some((source) =>
+            goalManager.getGoalsBySource(source).some((g) => g.name === decision.params.goalName),
+          );
           if (!hasDuplicate) {
             goalManager.addGoal({
               name: decision.params.goalName,
@@ -807,6 +808,71 @@ export async function createAgent() {
     return `${prefix}-${Date.now()}-${cerebroTaskIdCounter++}`;
   }
 
+  function hasPendingTasksForGoal(goalId) {
+    const current = taskQueue.getCurrent();
+    if (current?.goalId === goalId) return true;
+    return taskQueue.getQueue().some((task) => task.goalId === goalId);
+  }
+
+  // Convert new goals into executable tasks (decomposition pipeline)
+  bus.on("goal:added", (event) => {
+    const goal = event.data;
+    if (!goal?.id || !goal?.name) return;
+
+    const tasks = taskDecomposer
+      .decompose(goal.name, goal.metadata ?? {})
+      .map((task) => ({
+        ...task,
+        goalId: goal.id,
+        source: `goal:${goal.source}`,
+      }));
+
+    if (tasks.length === 0) {
+      goalManager.failGoal(goal.id, "No se pudieron generar tareas para la meta");
+      return;
+    }
+
+    if (taskQueue.size() + tasks.length > MAX_QUEUE_SIZE) {
+      log.warn(`Queue at capacity, delaying goal "${goal.name}" decomposition`);
+      return;
+    }
+
+    goalManager.activateGoal(goal.id);
+    taskQueue.enqueueBatch(tasks);
+    log.info(`Goal "${goal.name}" decomposed into ${tasks.length} tasks`);
+  });
+
+  // Resolve goal lifecycle from task outcomes
+  bus.on("task:completed", (event) => {
+    const { task } = event.data ?? {};
+    const goalId = task?.goalId;
+    if (!goalId) return;
+
+    const goal = goalManager.getGoal(goalId);
+    if (!goal || goal.status === "completed" || goal.status === "failed" || goal.status === "cancelled") return;
+
+    if (!hasPendingTasksForGoal(goalId)) {
+      goalManager.completeGoal(goalId);
+    }
+  });
+
+  bus.on("task:failed", (event) => {
+    const { task, error } = event.data ?? {};
+    const goalId = task?.goalId;
+    if (!goalId) return;
+
+    // Temporary failure: task was re-queued for retry
+    const retryQueued = taskQueue.getQueue().some((queuedTask) => queuedTask.id === task.id);
+    if (retryQueued) return;
+
+    const goal = goalManager.getGoal(goalId);
+    if (!goal || goal.status === "completed" || goal.status === "failed" || goal.status === "cancelled") return;
+
+    if (!hasPendingTasksForGoal(goalId)) {
+      goalManager.failGoal(goalId, String(error ?? "task_failed"));
+    }
+  });
+
   // --- CEREBRO QUE ACTUA: Connect thinker:actions → taskQueue ---
   // When the LLM suggests actions, enqueue them as real tasks
   bus.on("thinker:actions", (event) => {
@@ -894,6 +960,7 @@ export async function createAgent() {
         name: `recovery: ${resolution.reason}`,
         type: resolution.action.type ?? task.type,
         params: resolution.action.params ?? task.params,
+        goalId: task.goalId ?? null,
         source: "problem_solver",
         maxAttempts: 2,
       };
