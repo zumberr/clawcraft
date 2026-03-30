@@ -809,9 +809,7 @@ export async function createAgent() {
   }
 
   function hasPendingTasksForGoal(goalId) {
-    const current = taskQueue.getCurrent();
-    if (current?.goalId === goalId) return true;
-    return taskQueue.getQueue().some((task) => task.goalId === goalId);
+    return taskQueue.hasTasksForGoal(goalId);
   }
 
   // Convert new goals into executable tasks (decomposition pipeline)
@@ -828,7 +826,7 @@ export async function createAgent() {
       }));
 
     if (tasks.length === 0) {
-      goalManager.failGoal(goal.id, "No se pudieron generar tareas para la meta");
+      goalManager.failGoal(goal.id, `Could not generate tasks for goal: ${goal.name}`);
       return;
     }
 
@@ -862,14 +860,14 @@ export async function createAgent() {
     if (!goalId) return;
 
     // Temporary failure: task was re-queued for retry
-    const retryQueued = taskQueue.getQueue().some((queuedTask) => queuedTask.id === task.id);
+    const retryQueued = taskQueue.hasTask(task.id);
     if (retryQueued) return;
 
     const goal = goalManager.getGoal(goalId);
     if (!goal || goal.status === "completed" || goal.status === "failed" || goal.status === "cancelled") return;
 
     if (!hasPendingTasksForGoal(goalId)) {
-      goalManager.failGoal(goalId, String(error ?? "task_failed"));
+      goalManager.failGoal(goalId, String(error ?? `Task failed for goal: ${goal.name}`));
     }
   });
 
